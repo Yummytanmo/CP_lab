@@ -973,11 +973,15 @@ YY_RULE_SETUP
 case 29:
 YY_RULE_SETUP
 #line 80 "./lexical.l"
-{ yylval.node = createNode("FLOAT", yylineno, yytext); return FLOAT; }
+{
+    double value = strtod(yytext, NULL);
+    yylval.node = createNode("FLOAT", yylineno, value);
+    return FLOAT;
+}
 	YY_BREAK
 case 30:
 YY_RULE_SETUP
-#line 81 "./lexical.l"
+#line 85 "./lexical.l"
 {
     char val[32];
     int tmp = strtol(yytext, NULL, 8);
@@ -988,7 +992,7 @@ YY_RULE_SETUP
 	YY_BREAK
 case 31:
 YY_RULE_SETUP
-#line 88 "./lexical.l"
+#line 92 "./lexical.l"
 {
     char val[32];
     int tmp = strtol(yytext, NULL, 16);
@@ -999,15 +1003,15 @@ YY_RULE_SETUP
 	YY_BREAK
 case 32:
 YY_RULE_SETUP
-#line 97 "./lexical.l"
+#line 101 "./lexical.l"
 { error_num++; fprintf(stderr, "Error type A at Line %d: Mysterious character '%s'\n", yylineno, yytext); }
 	YY_BREAK
 case 33:
 YY_RULE_SETUP
-#line 99 "./lexical.l"
+#line 103 "./lexical.l"
 ECHO;
 	YY_BREAK
-#line 1011 "./lex.yy.c"
+#line 1015 "./lex.yy.c"
 case YY_STATE_EOF(INITIAL):
 	yyterminate();
 
@@ -2024,6 +2028,6 @@ void yyfree (void * ptr )
 
 #define YYTABLES_NAME "yytables"
 
-#line 99 "./lexical.l"
+#line 103 "./lexical.l"
 
 

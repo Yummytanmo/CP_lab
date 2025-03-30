@@ -79,7 +79,9 @@ FLOAT       {digit}+"."{digit}+|{digit}*"."{digit}+[eE][+-]?{digit}+|{digit}+"."
 {INT} { yylval.node = createNode("INT", yylineno, yytext); return INT; }
 {FLOAT} {
     double value = strtod(yytext, NULL);
-    yylval.node = createNode("FLOAT", yylineno, value);
+    char val[32];
+    sprintf(val, "%lf", value);
+    yylval.node = createNode("FLOAT", yylineno, val);
     return FLOAT;
 }
 {OCT} {
