@@ -1,33 +1,35 @@
-#include <stdio.h>
-#include "tree.h"
-#include "semantic.h"  // 包含语义分析头文件
+#include "semantic.h"
+#include "syntax.tab.h"
 
-Tree *root = NULL;
-int error_num = 0;          // 语法/词法错误计数器
-int semantic_error_num = 0; // 语义错误计数器
+extern pNode root;
 
-extern FILE* yyin;
-extern int yylex();
-extern int yyrestart(FILE *);
+extern int yylineno;
 extern int yyparse();
+extern void yyrestart(FILE*);
+
+unsigned lexError = FALSE;
+unsigned synError = FALSE;
 
 int main(int argc, char** argv) {
-    if (argc > 1) {
-        if (!(yyin = fopen(argv[1], "r"))) {
-            perror(argv[1]);
-            return 1;
-        }
+    if (argc <= 1) {
+        yyparse();
+        return 1;
     }
-    
-    yyrestart(yyin);
-    yyparse();  // 执行语法分析，生成语法树
-    
-    // 只有语法/词法无错误时才进行语义分析
-    if (error_num == 0) {
-        symbolTable = initSymTable();   // 初始化符号表
-        processTree(root);              // 执行语义分析
-        freeSymTable(symbolTable);      // 释放符号表资源
+
+    FILE* f = fopen(argv[1], "r");
+    if (!f) {
+        perror(argv[1]);
+        return 1;
     }
-    freeTree(root);
+
+    yyrestart(f);
+    yyparse();
+    if (!lexError && !synError) {
+        table = initTable();
+        // printTreeInfo(root, 0);
+        traverseTree(root);
+        deleteTable(table);
+    }
+    delNode(&root);
     return 0;
 }

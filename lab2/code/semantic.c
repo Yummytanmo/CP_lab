@@ -1,890 +1,1208 @@
 #include "semantic.h"
 
-// 由于 tree.h 中 Tree 结构体没有 next 字段，下面使用宏定义将
-// child(node) 等价于 node->children[0]，next(node) 等价于 node->children[1]
-#define child(n) ((n)->children[0])
-#define next(n) ((n)->next)
+pTable table;
 
-pSymbolTable symbolTable = NULL;
-
-void pError(int errorCode, int line, char* msg){    
-    printf("Error type %d at Line %d: %s\n", errorCode, line, msg);
-}
-
-// *********************** 类型相关函数 ***********************
-
-pSType createSType(Kind kind, ...) {
-    pSType typeNode = (pSType)malloc(sizeof(SType));
-    assert(typeNode != NULL);
-    typeNode->kind = kind;
-    va_list args;
-    assert(kind == BASIC || kind == ARRAY || kind == STRUCT || kind == FUNC);
+// Type functions
+pType newType(Kind kind, ...) {
+    pType p = (pType)malloc(sizeof(Type));
+    assert(p != NULL);
+    p->kind = kind;
+    va_list vaList;
+    assert(kind == BASIC || kind == ARRAY || kind == STRUCTURE ||
+           kind == FUNCTION);
     switch (kind) {
         case BASIC:
-            va_start(args, kind);
-            typeNode->u.basicType = va_arg(args, BasicType);
-            va_end(args);
+            va_start(vaList, 1);
+            p->u.basic = va_arg(vaList, BasicType);
             break;
         case ARRAY:
-            va_start(args, kind);
-            typeNode->u.array.elemType = va_arg(args, pSType);
-            typeNode->u.array.length = va_arg(args, int);
-            va_end(args);
+            va_start(vaList, 2);
+            p->u.array.elem = va_arg(vaList, pType);
+            p->u.array.size = va_arg(vaList, int);
             break;
-        case STRUCT:
-            va_start(args, kind);
-            typeNode->u.structType.tag = va_arg(args, char*);
-            typeNode->u.structType.fields = va_arg(args, pFieldNode);
-            va_end(args);
+        case STRUCTURE:
+            va_start(vaList, 2);
+            p->u.structure.structName = va_arg(vaList, char*);
+            p->u.structure.field = va_arg(vaList, pFieldList);
             break;
-        case FUNC:
-            va_start(args, kind);
-            typeNode->u.funcType.argCount = va_arg(args, int);
-            typeNode->u.funcType.argList = va_arg(args, pFieldNode);
-            typeNode->u.funcType.retType = va_arg(args, pSType);
-            va_end(args);
+        case FUNCTION:
+            va_start(vaList, 3);
+            p->u.function.argc = va_arg(vaList, int);
+            p->u.function.argv = va_arg(vaList, pFieldList);
+            p->u.function.returnType = va_arg(vaList, pType);
             break;
     }
-    return typeNode;
+    va_end(vaList);
+    return p;
 }
 
-pSType cloneSType(pSType orig) {
-    if (orig == NULL) return NULL;
-    pSType newTypeNode = (pSType)malloc(sizeof(SType));
-    assert(newTypeNode != NULL);
-    newTypeNode->kind = orig->kind;
-    switch (orig->kind) {
+pType copyType(pType src) {
+    if (src == NULL) return NULL;
+    pType p = (pType)malloc(sizeof(Type));
+    assert(p != NULL);
+    p->kind = src->kind;
+    assert(p->kind == BASIC || p->kind == ARRAY || p->kind == STRUCTURE ||
+           p->kind == FUNCTION);
+    switch (p->kind) {
         case BASIC:
-            newTypeNode->u.basicType = orig->u.basicType;
+            p->u.basic = src->u.basic;
             break;
         case ARRAY:
-            newTypeNode->u.array.elemType = cloneSType(orig->u.array.elemType);
-            newTypeNode->u.array.length = orig->u.array.length;
+            p->u.array.elem = copyType(src->u.array.elem);
+            p->u.array.size = src->u.array.size;
             break;
-        case STRUCT:
-            newTypeNode->u.structType.tag = newString(orig->u.structType.tag);
-            newTypeNode->u.structType.fields = cloneFieldNode(orig->u.structType.fields);
+        case STRUCTURE:
+            p->u.structure.structName = newString(src->u.structure.structName);
+            p->u.structure.field = copyFieldList(src->u.structure.field);
             break;
-        case FUNC:
-            newTypeNode->u.funcType.argCount = orig->u.funcType.argCount;
-            newTypeNode->u.funcType.argList = cloneFieldNode(orig->u.funcType.argList);
-            newTypeNode->u.funcType.retType = cloneSType(orig->u.funcType.retType);
+        case FUNCTION:
+            p->u.function.argc = src->u.function.argc;
+            p->u.function.argv = copyFieldList(src->u.function.argv);
+            p->u.function.returnType = copyType(src->u.function.returnType);
             break;
     }
-    return newTypeNode;
+
+    return p;
 }
 
-void freeSType(pSType typeNode) {
-    assert(typeNode != NULL);
-    switch (typeNode->kind) {
+void deleteType(pType type) {
+    assert(type != NULL);
+    assert(type->kind == BASIC || type->kind == ARRAY ||
+           type->kind == STRUCTURE || type->kind == FUNCTION);
+    pFieldList temp = NULL;
+    // pFieldList tDelete = NULL;
+    switch (type->kind) {
         case BASIC:
             break;
         case ARRAY:
-            freeSType(typeNode->u.array.elemType);
-            typeNode->u.array.elemType = NULL;
+            deleteType(type->u.array.elem);
+            type->u.array.elem = NULL;
             break;
-        case STRUCT: {
-            if (typeNode->u.structType.tag)
-                free(typeNode->u.structType.tag);
-            typeNode->u.structType.tag = NULL;
-            pFieldNode cur = typeNode->u.structType.fields;
-            while (cur) {
-                pFieldNode next = cur->next;
-                freeFieldNode(cur);
-                cur = next;
+        case STRUCTURE:
+            if (type->u.structure.structName)
+                free(type->u.structure.structName);
+            type->u.structure.structName = NULL;
+
+            temp = type->u.structure.field;
+            while (temp) {
+                pFieldList tDelete = temp;
+                temp = temp->tail;
+                deleteFieldList(tDelete);
             }
-            typeNode->u.structType.fields = NULL;
+            type->u.structure.field = NULL;
             break;
-        }
-        case FUNC: {
-            freeSType(typeNode->u.funcType.retType);
-            typeNode->u.funcType.retType = NULL;
-            pFieldNode cur = typeNode->u.funcType.argList;
-            while (cur) {
-                pFieldNode next = cur->next;
-                freeFieldNode(cur);
-                cur = next;
+        case FUNCTION:
+            deleteType(type->u.function.returnType);
+            type->u.function.returnType = NULL;
+            temp = type->u.function.argv;
+            while (temp) {
+                pFieldList tDelete = temp;
+                temp = temp->tail;
+                deleteFieldList(tDelete);
             }
-            typeNode->u.funcType.argList = NULL;
+            type->u.function.argv = NULL;
             break;
+    }
+    free(type);
+}
+
+boolean checkType(pType type1, pType type2) {
+    if (type1 == NULL || type2 == NULL) return TRUE;
+    if (type1->kind == FUNCTION || type2->kind == FUNCTION) return FALSE;
+    if (type1->kind != type2->kind)
+        return FALSE;
+    else {
+        assert(type1->kind == BASIC || type1->kind == ARRAY ||
+               type1->kind == STRUCTURE);
+        switch (type1->kind) {
+            case BASIC:
+                return type1->u.basic == type2->u.basic;
+            case ARRAY:
+                return checkType(type1->u.array.elem, type2->u.array.elem);
+            case STRUCTURE:
+                return !strcmp(type1->u.structure.structName,
+                               type2->u.structure.structName);
         }
     }
-    free(typeNode);
 }
 
-boolean checkSTypeEqual(pSType t1, pSType t2) {
-    if (t1 == NULL || t2 == NULL) return TRUE;
-    if (t1->kind == FUNC || t2->kind == FUNC) return FALSE;
-    if (t1->kind != t2->kind) return FALSE;
-    switch (t1->kind) {
-        case BASIC:
-            return t1->u.basicType == t2->u.basicType;
-        case ARRAY:
-            return checkSTypeEqual(t1->u.array.elemType, t2->u.array.elemType);
-        case STRUCT:
-            return strcmp(t1->u.structType.tag, t2->u.structType.tag) == 0;
-        default:
-            return FALSE;
+void printType(pType type) {
+    if (type == NULL) {
+        printf("type is NULL.\n");
+    } else {
+        printf("type kind: %d\n", type->kind);
+        switch (type->kind) {
+            case BASIC:
+                printf("type basic: %d\n", type->u.basic);
+                break;
+            case ARRAY:
+                printf("array size: %d\n", type->u.array.size);
+                printType(type->u.array.elem);
+                break;
+            case STRUCTURE:
+                if (!type->u.structure.structName)
+                    printf("struct name is NULL\n");
+                else {
+                    printf("struct name is %s\n", type->u.structure.structName);
+                }
+                printFieldList(type->u.structure.field);
+                break;
+            case FUNCTION:
+                printf("function argc is %d\n", type->u.function.argc);
+                printf("function args:\n");
+                printFieldList(type->u.function.argv);
+                printf("function return type:\n");
+                printType(type->u.function.returnType);
+                break;
+        }
     }
 }
 
-void displaySType(pSType typeNode) {
-    if (typeNode == NULL) {
-        printf("Type node is NULL.\n");
-        return;
-    }
-    printf("Type kind: %d\n", typeNode->kind);
-    switch (typeNode->kind) {
-        case BASIC:
-            printf("Basic type: %d\n", typeNode->u.basicType);
-            break;
-        case ARRAY:
-            printf("Array length: %d\n", typeNode->u.array.length);
-            displaySType(typeNode->u.array.elemType);
-            break;
-        case STRUCT:
-            if (typeNode->u.structType.tag)
-                printf("Struct tag: %s\n", typeNode->u.structType.tag);
-            else
-                printf("Anonymous struct.\n");
-            displayFieldNode(typeNode->u.structType.fields);
-            break;
-        case FUNC:
-            printf("Function arg count: %d\n", typeNode->u.funcType.argCount);
-            displayFieldNode(typeNode->u.funcType.argList);
-            printf("Function return type:\n");
-            displaySType(typeNode->u.funcType.retType);
-            break;
-    }
+// FieldList functions
+pFieldList newFieldList(char* newName, pType newType) {
+    pFieldList p = (pFieldList)malloc(sizeof(FieldList));
+    assert(p != NULL);
+    p->name = newString(newName);
+    p->type = newType;
+    p->tail = NULL;
+    return p;
 }
 
-// *********************** 域链表相关函数 ***********************
+pFieldList copyFieldList(pFieldList src) {
+    assert(src != NULL);
+    pFieldList head = NULL, cur = NULL;
+    pFieldList temp = src;
 
-pFieldNode createFieldNode(char* fieldName, pSType fieldType) {
-    pFieldNode newNode = (pFieldNode)malloc(sizeof(FieldNode));
-    assert(newNode != NULL);
-    newNode->name = newString(fieldName);
-    newNode->type = fieldType;
-    newNode->next = NULL;
-    return newNode;
-}
-
-pFieldNode cloneFieldNode(pFieldNode src) {
-    if (!src) return NULL;
-    pFieldNode head = NULL, cur = NULL;
-    pFieldNode tmp = src;
-    while (tmp) {
-        pFieldNode newNode = createFieldNode(tmp->name, cloneSType(tmp->type));
-        if (head == NULL) {
-            head = newNode;
+    while (temp) {
+        if (!head) {
+            head = newFieldList(temp->name, copyType(temp->type));
             cur = head;
+            temp = temp->tail;
         } else {
-            cur->next = newNode;
-            cur = newNode;
+            cur->tail = newFieldList(temp->name, copyType(temp->type));
+            cur = cur->tail;
+            temp = temp->tail;
         }
-        tmp = tmp->next;
     }
     return head;
 }
 
-void freeFieldNode(pFieldNode node) {
-    if (node == NULL) return;
-    if (node->name) {
-        free(node->name);
-        node->name = NULL;
+void deleteFieldList(pFieldList fieldList) {
+    assert(fieldList != NULL);
+    if (fieldList->name) {
+        free(fieldList->name);
+        fieldList->name = NULL;
     }
-    if (node->type) freeSType(node->type);
-    free(node);
+    if (fieldList->type) deleteType(fieldList->type);
+    fieldList->type = NULL;
+    free(fieldList);
 }
 
-void updateFieldName(pFieldNode node, char* newName) {
-    assert(node && newName);
-    if (node->name)
-        free(node->name);
-    node->name = newString(newName);
-}
-
-void displayFieldNode(pFieldNode node) {
-    if (node == NULL) {
-        printf("Field list is empty.\n");
-        return;
+void setFieldListName(pFieldList p, char* newName) {
+    assert(p != NULL && newName != NULL);
+    if (p->name != NULL) {
+        free(p->name);
     }
-    printf("Field name: %s\n", node->name);
-    printf("Field type:\n");
-    displaySType(node->type);
-    displayFieldNode(node->next);
+    // int length = strlen(newName) + 1;
+    // p->name = (char*)malloc(sizeof(char) * length);
+    // strncpy(p->name, newName, length);
+    p->name = newString(newName);
 }
 
-// *********************** 符号项与符号表相关函数 ***********************
-
-pSymbolItem createSymbolItem(int depth, pFieldNode field) {
-    pSymbolItem symItem = (pSymbolItem)malloc(sizeof(SymbolItem));
-    assert(symItem != NULL);
-    symItem->depth = depth;
-    symItem->field = field;
-    symItem->nextInHash = NULL;
-    symItem->nextInScope = NULL;
-    return symItem;
+void printFieldList(pFieldList fieldList) {
+    if (fieldList == NULL)
+        printf("fieldList is NULL\n");
+    else {
+        printf("fieldList name is: %s\n", fieldList->name);
+        printf("FieldList Type:\n");
+        printType(fieldList->type);
+        printFieldList(fieldList->tail);
+    }
 }
 
-void freeSymbolItem(pSymbolItem item) {
+// tableItem functions
+pItem newItem(int symbolDepth, pFieldList pfield) {
+    pItem p = (pItem)malloc(sizeof(TableItem));
+    assert(p != NULL);
+    p->symbolDepth = symbolDepth;
+    p->field = pfield;
+    p->nextHash = NULL;
+    p->nextSymbol = NULL;
+    return p;
+}
+
+void deleteItem(pItem item) {
     assert(item != NULL);
-    if (item->field != NULL) {
-        freeFieldNode(item->field);
-    }
+    if (item->field != NULL) deleteFieldList(item->field);
     free(item);
 }
 
-pSymHash createSymHash() {
-    pSymHash hashTbl = (pSymHash)malloc(sizeof(SymHash));
-    assert(hashTbl != NULL);
-    hashTbl->buckets = (pSymbolItem*)malloc(sizeof(pSymbolItem) * HASH_TABLE_SIZE);
-    assert(hashTbl->buckets != NULL);
+// Hash functions
+pHash newHash() {
+    pHash p = (pHash)malloc(sizeof(HashTable));
+    assert(p != NULL);
+    p->hashArray = (pItem*)malloc(sizeof(pItem) * HASH_TABLE_SIZE);
+    assert(p->hashArray != NULL);
     for (int i = 0; i < HASH_TABLE_SIZE; i++) {
-        hashTbl->buckets[i] = NULL;
+        p->hashArray[i] = NULL;
     }
-    return hashTbl;
+    return p;
 }
 
-void freeSymHash(pSymHash hashTbl) {
-    assert(hashTbl != NULL);
+void deleteHash(pHash hash) {
+    assert(hash != NULL);
     for (int i = 0; i < HASH_TABLE_SIZE; i++) {
-        pSymbolItem cur = hashTbl->buckets[i];
-        while (cur) {
-            pSymbolItem next = cur->nextInHash;
-            freeSymbolItem(cur);
-            cur = next;
+        pItem temp = hash->hashArray[i];
+        while (temp) {
+            pItem tdelete = temp;
+            temp = temp->nextHash;
+            deleteItem(tdelete);
         }
-        hashTbl->buckets[i] = NULL;
+        hash->hashArray[i] = NULL;
     }
-    free(hashTbl->buckets);
-    free(hashTbl);
+    free(hash->hashArray);
+    hash->hashArray = NULL;
+    free(hash);
 }
 
-void addSymbolItem(pSymbolTable symTab, pSymbolItem item) {
-    assert(symTab != NULL && item != NULL);
-    unsigned hashVal = getHashCode(item->field->name);
-    item->nextInScope = getScopeHead(symTab->scope);
-    setScopeHead(symTab->scope, item);
-    item->nextInHash = symTab->hash->buckets[hashVal];
-    symTab->hash->buckets[hashVal] = item;
+pItem getHashHead(pHash hash, int index) {
+    assert(hash != NULL);
+    return hash->hashArray[index];
 }
 
-void removeScopeSymbols(pSymbolTable symTab) {
-    assert(symTab != NULL);
-    pSymStack scope = symTab->scope;
-    pSymbolItem cur = getScopeHead(scope);
-    while (cur) {
-        unsigned hashVal = getHashCode(cur->field->name);
-        if (cur == symTab->hash->buckets[hashVal])
-            symTab->hash->buckets[hashVal] = cur->nextInHash;
-        else {
-            pSymbolItem tmp = symTab->hash->buckets[hashVal];
-            while (tmp && tmp != cur) {
-                tmp = tmp->nextInHash;
-            }
-            if (tmp)
-                tmp->nextInHash = cur->nextInHash;
-        }
-        pSymbolItem delItem = cur;
-        cur = delItem->nextInScope;  // 注意使用链表的 nextInScope（原代码使用 next）
-        freeSymbolItem(delItem);
-    }
-    setScopeHead(scope, NULL);
-    decreaseScopeDepth(scope);
+void setHashHead(pHash hash, int index, pItem newVal) {
+    assert(hash != NULL);
+    hash->hashArray[index] = newVal;
 }
+// Table functions
 
-pSymbolItem lookupSymbol(pSymbolTable symTab, char* name) {
-    unsigned hashVal = getHashCode(name);
-    pSymbolItem cur = symTab->hash->buckets[hashVal];
-    while (cur) {
-        if (strcmp(cur->field->name, name) == 0)
-            return cur;
-        cur = cur->nextInHash;
+pTable initTable() {
+    pTable table = (pTable)malloc(sizeof(Table));
+    assert(table != NULL);
+    table->hash = newHash();
+    table->stack = newStack();
+    table->unNamedStructNum = 0;
+    return table;
+};
+
+void deleteTable(pTable table) {
+    deleteHash(table->hash);
+    table->hash = NULL;
+    deleteStack(table->stack);
+    table->stack = NULL;
+    free(table);
+};
+
+pItem searchTableItem(pTable table, char* name) {
+    unsigned hashCode = getHashCode(name);
+    pItem temp = getHashHead(table->hash, hashCode);
+    if (temp == NULL) return NULL;
+    while (temp) {
+        if (!strcmp(temp->field->name, name)) return temp;
+        temp = temp->nextHash;
     }
     return NULL;
 }
 
-// *********************** 符号表初始化及销毁 ***********************
-
-pSymbolTable initSymTable() {
-    pSymbolTable symTab = (pSymbolTable)malloc(sizeof(SymbolTable));
-    assert(symTab != NULL);
-    symTab->hash = createSymHash();
-    symTab->scope = initScopeStack();
-    symTab->anonStructCount = 0;
-    return symTab;
-}
-
-void freeSymTable(pSymbolTable symTab) {
-    freeSymHash(symTab->hash);
-    symTab->hash = NULL;
-    freeScopeStack(symTab->scope);
-    symTab->scope = NULL;
-    free(symTab);
-}
-
-// *********************** 语义分析各部分函数 ***********************
-
-void processTree(pNode root) {
-    if (root == NULL) return;
-    if (strcmp(root->name, "ExtDef") == 0) processExtDef(root);
-    processTree(child(root));
-    processTree(next(root));
-}
-
-/*
-ExtDef → Specifier ExtDecList SEMI
-| Specifier SEMI
-| Specifier FunDec CompSt
-*/
-void processExtDef(pNode node) {
-    assert(node != NULL);
-    pSType specType = processSpecifier(child(node));
-    char* secondToken = next(child(node))->name;
-    if (strcmp(secondToken, "ExtDecList") == 0) {
-        processExtDecList(next((node)), specType);
-    } else if (strcmp(secondToken, "FunDec") == 0) {
-        processFunDec(next(child(node)), specType);
-        processCompSt(next(next(child(node))), specType);
-    }
-    if (specType) freeSType(specType);
-}
-
-/*
-ExtDecList → VarDec
-| VarDec COMMA ExtDecList
-*/
-void processExtDecList(pNode node, pSType specType) {
-    assert(node != NULL);
-    pNode cur = node;
-    while (cur) {
-        pSymbolItem newSym = processVarDec(child(cur), specType);
-        if (lookupSymbol(symbolTable, newSym->field->name) != NULL) {
-            char msg[100] = {0};
-            sprintf(msg, "Redefined variable \"%s\".", newSym->field->name);
-            pError(REDEF_VAR, cur->line, msg);
-            freeSymbolItem(newSym);
-        } else {
-            addSymbolItem(symbolTable, newSym);
+// Return false -> no confliction, true -> has confliction
+boolean checkTableItemConflict(pTable table, pItem item) {
+    pItem temp = searchTableItem(table, item->field->name);
+    if (temp == NULL) return FALSE;
+    while (temp) {
+        if (!strcmp(temp->field->name, item->field->name)) {
+            if (temp->field->type->kind == STRUCTURE ||
+                item->field->type->kind == STRUCTURE)
+                return TRUE;
+            if (temp->symbolDepth == table->stack->curStackDepth) return TRUE;
         }
-        if (next(next((child(cur)))))
-            cur = next(next((child(cur))));
-        else
-            break;
+        temp = temp->nextHash;
     }
+    return FALSE;
 }
 
-/*
-Specifier → TYPE
-| StructSpecifier
-*/
-pSType processSpecifier(pNode node) {
-    assert(node != NULL);
-    pNode sub = child(node);
-    if (strcmp(sub->name, "TYPE") == 0) {
-        if (strcmp(sub->info, "float") == 0)
-            return createSType(BASIC, FLOAT_TYPE);
-        else
-            return createSType(BASIC, INT_TYPE);
-    }
-    //  else {
-    //     return processStructSpecifier(sub);
+void addTableItem(pTable table, pItem item) {
+    assert(table != NULL && item != NULL);
+    unsigned hashCode = getHashCode(item->field->name);
+    pHash hash = table->hash;
+    pStack stack = table->stack;
+    // if (getCurDepthStackHead(stack) == NULL)
+    //     setCurDepthStackHead(stack, item);
+    // else {
+    //     item->nextHash = getCurDepthStackHead(stack);
+    //     setCurDepthStackHead(stack, item);
     // }
+    item->nextSymbol = getCurDepthStackHead(stack);
+    setCurDepthStackHead(stack, item);
+
+    item->nextHash = getHashHead(hash, hashCode);
+    setHashHead(hash, hashCode, item);
 }
 
-pSType processStructSpecifier(pNode node) {
+void deleteTableItem(pTable table, pItem item) {
+    assert(table != NULL && item != NULL);
+    unsigned hashCode = getHashCode(item->field->name);
+    if (item == getHashHead(table->hash, hashCode))
+        setHashHead(table->hash, hashCode, item->nextHash);
+    else {
+        pItem cur = getHashHead(table->hash, hashCode);
+        pItem last = cur;
+        while (cur != item) {
+            last = cur;
+            cur = cur->nextHash;
+        }
+        last->nextHash = cur->nextHash;
+    }
+    deleteItem(item);
+}
+
+boolean isStructDef(pItem src) {
+    if (src == NULL) return FALSE;
+    if (src->field->type->kind != STRUCTURE) return FALSE;
+    if (src->field->type->u.structure.structName) return FALSE;
+    return TRUE;
+}
+
+// void addStructLayer(pTable table) { table->enterStructLayer++; }
+
+// void minusStructLayer(pTable table) { table->enterStructLayer--; }
+
+// boolean isInStructLayer(pTable table) { return table->enterStructLayer > 0; }
+
+void clearCurDepthStackList(pTable table) {
+    assert(table != NULL);
+    pStack stack = table->stack;
+    pItem temp = getCurDepthStackHead(stack);
+    while (temp) {
+        pItem tDelete = temp;
+        temp = temp->nextSymbol;
+        deleteTableItem(table, tDelete);
+    }
+    setCurDepthStackHead(stack, NULL);
+    minusStackDepth(stack);
+}
+
+// for Debug
+void printTable(pTable table) {
+    printf("----------------hash_table----------------\n");
+    for (int i = 0; i < HASH_TABLE_SIZE; i++) {
+        pItem item = getHashHead(table->hash, i);
+        if (item) {
+            printf("[%d]", i);
+            while (item) {
+                printf(" -> name: %s depth: %d\n", item->field->name,
+                       item->symbolDepth);
+                printf("========FiledList========\n");
+                printFieldList(item->field);
+                printf("===========End===========\n");
+                item = item->nextHash;
+            }
+            printf("\n");
+        }
+    }
+    printf("-------------------end--------------------\n");
+}
+
+// Stack functions
+pStack newStack() {
+    pStack p = (pStack)malloc(sizeof(Stack));
+    assert(p != NULL);
+    p->stackArray = (pItem*)malloc(sizeof(pItem) * HASH_TABLE_SIZE);
+    assert(p->stackArray != NULL);
+    for (int i = 0; i < HASH_TABLE_SIZE; i++) {
+        p->stackArray[i] = NULL;
+    }
+    p->curStackDepth = 0;
+    return p;
+}
+
+void deleteStack(pStack stack) {
+    assert(stack != NULL);
+    free(stack->stackArray);
+    stack->stackArray = NULL;
+    stack->curStackDepth = 0;
+    free(stack);
+}
+
+void addStackDepth(pStack stack) {
+    assert(stack != NULL);
+    stack->curStackDepth++;
+}
+
+void minusStackDepth(pStack stack) {
+    assert(stack != NULL);
+    stack->curStackDepth--;
+}
+
+pItem getCurDepthStackHead(pStack stack) {
+    assert(stack != NULL);
+    return stack->stackArray[stack->curStackDepth];
+    // return p == NULL ? NULL : p->stackArray[p->curStackDepth];
+}
+
+void setCurDepthStackHead(pStack stack, pItem newVal) {
+    assert(stack != NULL);
+    stack->stackArray[stack->curStackDepth] = newVal;
+}
+
+// Global function
+void traverseTree(pNode node) {
+    if (node == NULL) return;
+
+    if (!strcmp(node->name, "ExtDef")) ExtDef(node);
+
+    traverseTree(node->child);
+    traverseTree(node->next);
+}
+
+// Generate symbol table functions
+void ExtDef(pNode node) {
     assert(node != NULL);
-    pSType retType = NULL;
-    pNode tagNode = child(next(node));
-    if (strcmp(tagNode->name, "Tag") ) {
-        pSymbolItem structSym = createSymbolItem(symbolTable->scope->currentDepth, 
-                                  createFieldNode("", createSType(STRUCT, NULL, NULL)));
-        if (strcmp(tagNode->name, "OptTag") == 0) {
-            updateFieldName(structSym->field, child(tagNode)->info);
-            tagNode = next(tagNode);
-        } else {
-            symbolTable->anonStructCount++;
-            char tmpName[20] = {0};
-            sprintf(tmpName, "%d", symbolTable->anonStructCount);
-            updateFieldName(structSym->field, tmpName);
-        }
-        if (strcmp(next(tagNode)->name, "DefList") == 0) {
-            processDefList(next(tagNode), structSym);
-        }
-        if (lookupSymbol(symbolTable, structSym->field->name) != NULL) {
+    // ExtDef -> Specifier ExtDecList SEMI
+    //         | Specifier SEMI
+    //         | Specifier FunDec CompSt
+    pType specifierType = Specifier(node->child);
+    char* secondName = node->child->next->name;
+
+    // printType(specifierType);
+    // ExtDef -> Specifier ExtDecList SEMI
+    if (!strcmp(secondName, "ExtDecList")) {
+        // TODO: process first situation
+        ExtDecList(node->child->next, specifierType);
+    }
+    // ExtDef -> Specifier FunDec CompSt
+    else if (!strcmp(secondName, "FunDec")) {
+        // TODO: process third situation
+        FunDec(node->child->next, specifierType);
+        CompSt(node->child->next->next, specifierType);
+    }
+    if (specifierType) deleteType(specifierType);
+    // printTable(table);
+    // Specifier SEMI
+    // this situation has no meaning
+    // or is struct define(have been processe inSpecifier())
+}
+
+void ExtDecList(pNode node, pType specifier) {
+    assert(node != NULL);
+    // ExtDecList -> VarDec
+    //             | VarDec COMMA ExtDecList
+    pNode temp = node;
+    while (temp) {
+        pItem item = VarDec(temp->child, specifier);
+        if (checkTableItemConflict(table, item)) {
             char msg[100] = {0};
-            sprintf(msg, "Duplicated name \"%s\".", structSym->field->name);
-            pError(REDEF_STRUCT, node->line, msg);
-            freeSymbolItem(structSym);
+            sprintf(msg, "Redefined variable \"%s\".", item->field->name);
+            pError(REDEF_VAR, temp->lineNo, msg);
+            deleteItem(item);
         } else {
-            retType = createSType(STRUCT, newString(structSym->field->name),
-                          cloneFieldNode(structSym->field->type->u.structType.fields));
-            if (strcmp(next(node)->name, "OptTag") == 0)
-                addSymbolItem(symbolTable, structSym);
-            else
-                freeSymbolItem(structSym);
+            addTableItem(table, item);
         }
-    } else {
-        pSymbolItem existStruct = lookupSymbol(symbolTable, child(tagNode)->info);
-        if (existStruct == NULL || !isStructDefined(existStruct)) {
+        if (temp->child->next) {
+            temp = temp->next->next->child;
+        } else {
+            break;
+        }
+    }
+}
+
+pType Specifier(pNode node) {
+    assert(node != NULL);
+    // Specifier -> TYPE
+    //            | StructSpecifier
+
+    pNode t = node->child;
+    // Specifier -> TYPE
+    if (!strcmp(t->name, "TYPE")) {
+        if (!strcmp(t->val, "float")) {
+            return newType(BASIC, FLOAT_TYPE);
+        } else {
+            return newType(BASIC, INT_TYPE);
+        }
+    }
+    // Specifier -> StructSpecifier
+    else {
+        return StructSpecifier(t);
+    }
+}
+
+pType StructSpecifier(pNode node) {
+    assert(node != NULL);
+    // StructSpecifier -> STRUCT OptTag LC DefList RC
+    //                  | STRUCT Tag
+
+    // OptTag -> ID | e
+    // Tag -> ID
+    pType returnType = NULL;
+    pNode t = node->child->next;
+    // StructSpecifier->STRUCT OptTag LC DefList RC
+    // printTreeInfo(t, 0);
+    if (strcmp(t->name, "Tag")) {
+        // addStructLayer(table);
+        pItem structItem =
+            newItem(table->stack->curStackDepth,
+                    newFieldList("", newType(STRUCTURE, NULL, NULL)));
+        if (!strcmp(t->name, "OptTag")) {
+            setFieldListName(structItem->field, t->child->val);
+            t = t->next;
+        }
+        // unnamed struct
+        else {
+            table->unNamedStructNum++;
+            char structName[20] = {0};
+            sprintf(structName, "%d", table->unNamedStructNum);
+            // printf("unNamed struct's name is %s.\n", structName);
+            setFieldListName(structItem->field, structName);
+        }
+        //现在我们进入结构体了！注意，报错信息会有不同！
+        // addStackDepth(table->stack);
+        if (!strcmp(t->next->name, "DefList")) {
+            DefList(t->next, structItem);
+        }
+
+        if (checkTableItemConflict(table, structItem)) {
             char msg[100] = {0};
-            sprintf(msg, "Undefined structure \"%s\".", child(tagNode)->info);
-            pError(UNDEF_STRUCT_TYPE, node->line, msg);
+            sprintf(msg, "Duplicated name \"%s\".", structItem->field->name);
+            pError(DUPLICATED_NAME, node->lineNo, msg);
+            deleteItem(structItem);
         } else {
-            retType = createSType(STRUCT, newString(existStruct->field->name),
-                        cloneFieldNode(existStruct->field->type->u.structType.fields));
+            returnType = newType(
+                STRUCTURE, newString(structItem->field->name),
+                copyFieldList(structItem->field->type->u.structure.field));
+
+            // printf("\nnew Type:\n");
+            // printType(returnType);
+            // printf("\n");
+
+            if (!strcmp(node->child->next->name, "OptTag")) {
+                addTableItem(table, structItem);
+            }
+            // OptTag -> e
+            else {
+                deleteItem(structItem);
+            }
+        }
+
+        //我们出了结构体
+        // minusStackDepth(table->stack);
+        // minusStructLayer(table);
+    }
+
+    // StructSpecifier->STRUCT Tag
+    else {
+        pItem structItem = searchTableItem(table, t->child->val);
+        if (structItem == NULL || !isStructDef(structItem)) {
+            char msg[100] = {0};
+            sprintf(msg, "Undefined structure \"%s\".", t->child->val);
+            pError(UNDEF_STRUCT, node->lineNo, msg);
+        } else
+            returnType = newType(
+                STRUCTURE, newString(structItem->field->name),
+                copyFieldList(structItem->field->type->u.structure.field));
+    }
+    // printType(returnType);
+    return returnType;
+}
+
+pItem VarDec(pNode node, pType specifier) {
+    assert(node != NULL);
+    // VarDec -> ID
+    //         | VarDec LB INT RB
+    pNode id = node;
+    // get ID
+    while (id->child) id = id->child;
+    pItem p = newItem(table->stack->curStackDepth, newFieldList(id->val, NULL));
+    // return newItem(table->stack->curStackDepth,
+    //                newFieldList(id->val, generateVarDecType(node,
+    //                specifier)));
+
+    // VarDec -> ID
+    // printTreeInfo(node, 0);
+    if (!strcmp(node->child->name, "ID")) {
+        // printf("copy type tp %s.\n", node->child->val);
+        p->field->type = copyType(specifier);
+    }
+    // VarDec -> VarDec LB INT RB
+    else {
+        pNode varDec = node->child;
+        pType temp = specifier;
+        // printf("VarDec -> VarDec LB INT RB.\n");
+        while (varDec->next) {
+            // printTreeInfo(varDec, 0);
+            // printf("number: %s\n", varDec->next->next->val);
+            // printf("temp type: %d\n", temp->kind);
+            p->field->type =
+                newType(ARRAY, copyType(temp), atoi(varDec->next->next->val));
+            // printf("newType. newType: elem type: %d, elem size: %d.\n",
+            //        p->field->type->u.array.elem->kind,
+            //        p->field->type->u.array.size);
+            temp = p->field->type;
+            varDec = varDec->child;
         }
     }
-    return retType;
+    // printf("-------test VarDec ------\n");
+    // printType(specifier);
+    // printFieldList(p->field);
+    // printf("-------test End ------\n");
+    return p;
 }
 
-/*
-VarDec → ID
-| VarDec LB INT RB
-*/
-pSymbolItem processVarDec(pNode node, pSType specType) {
+// pType generateVarDecType(pNode node, pType type) {
+//     // VarDec -> ID
+//     if (!strcmp(node->child->name, "ID")) return copyType(type);
+//     // VarDec -> VarDec LB INT RB
+//     else
+//         return newType(ARRAY, atoi(node->child->next->next->val),
+//                        generateVarDecType(node, type));
+// }
+
+void FunDec(pNode node, pType returnType) {
     assert(node != NULL);
-    pNode idNode = node;
-    while (child(idNode)) {
-        idNode = child(idNode);
+    // FunDec -> ID LP VarList RP
+    //         | ID LP RP
+    pItem p =
+        newItem(table->stack->curStackDepth,
+                newFieldList(node->child->val,
+                             newType(FUNCTION, 0, NULL, copyType(returnType))));
+
+    // FunDec -> ID LP VarList RP
+    if (!strcmp(node->child->next->next->name, "VarList")) {
+        VarList(node->child->next->next, p);
     }
-    pSymbolItem sym = createSymbolItem(symbolTable->scope->currentDepth,
-                                       createFieldNode(child(idNode)->info, NULL));
-    if (strcmp(child(node)->name, "ID") == 0) {
-        sym->field->type = cloneSType(specType);
+
+    // FunDec -> ID LP RP don't need process
+
+    // check redefine
+    if (checkTableItemConflict(table, p)) {
+        char msg[100] = {0};
+        sprintf(msg, "Redefined function \"%s\".", p->field->name);
+        pError(REDEF_FUNC, node->lineNo, msg);
+        deleteItem(p);
+        p = NULL;
     } else {
-        pNode temp = child(node);
-        pSType curType = specType;
-        while (next(temp)) {
-            sym->field->type = createSType(ARRAY, cloneSType(curType), atoi(next(next(temp))->info));
-            curType = sym->field->type;
-            temp = child(temp);
+        addTableItem(table, p);
+    }
+}
+
+void VarList(pNode node, pItem func) {
+    assert(node != NULL);
+    // VarList -> ParamDec COMMA VarList
+    //          | ParamDec
+    addStackDepth(table->stack);
+    int argc = 0;
+    pNode temp = node->child;
+    pFieldList cur = NULL;
+
+    // VarList -> ParamDec
+    pFieldList paramDec = ParamDec(temp);
+    func->field->type->u.function.argv = copyFieldList(paramDec);
+    cur = func->field->type->u.function.argv;
+    argc++;
+
+    // VarList -> ParamDec COMMA VarList
+    while (temp->next) {
+        temp = temp->next->next->child;
+        paramDec = ParamDec(temp);
+        if (paramDec) {
+            cur->tail = copyFieldList(paramDec);
+            cur = cur->tail;
+            argc++;
         }
     }
-    return sym;
+
+    func->field->type->u.function.argc = argc;
+
+    minusStackDepth(table->stack);
 }
 
-
-/*
-FunDec → ID LP VarList RP
-| ID LP RP
-*/
-void processFunDec(pNode node, pSType retType) {
+pFieldList ParamDec(pNode node) {
     assert(node != NULL);
-    pSymbolItem funcSym = createSymbolItem(symbolTable->scope->currentDepth,
-                        createFieldNode(child(node)->info, 
-                        createSType(FUNC, 0, NULL, cloneSType(retType))));
-    if (strcmp(next(next(child(node)))->name, "VarList") == 0) {
-        processVarList(next(next(child(node))), funcSym);
-    }
-    if (lookupSymbol(symbolTable, funcSym->field->name) != NULL) {
+    // ParamDec -> Specifier VarDec
+    pType specifierType = Specifier(node->child);
+    pItem p = VarDec(node->child->next, specifierType);
+    if (specifierType) deleteType(specifierType);
+    if (checkTableItemConflict(table, p)) {
         char msg[100] = {0};
-        sprintf(msg, "Redefined function \"%s\".", funcSym->field->name);
-        pError(REDEF_FUNC, node->line, msg);
-        freeSymbolItem(funcSym);
-    } else {
-        addSymbolItem(symbolTable, funcSym);
-    }
-}
-
-/*
-VarList → ParamDec COMMA VarList
-| ParamDec
-*/
-void processVarList(pNode node, pSymbolItem funcSym) {
-    assert(node != NULL);
-    addScopeDepth(symbolTable->scope);
-    int count = 0;
-    pNode cur = child(node);
-    pFieldNode argHead = processParamDec(cur);
-    count++;
-    funcSym->field->type->u.funcType.argList = cloneFieldNode(argHead);
-    pFieldNode curField = funcSym->field->type->u.funcType.argList;
-    while (next(cur)) {
-        cur = next(next(cur));
-        pFieldNode newArg = processParamDec(cur);
-        curField->next = cloneFieldNode(newArg);
-        curField = curField->next;
-        count++;
-    }
-    funcSym->field->type->u.funcType.argCount = count;
-    decreaseScopeDepth(symbolTable->scope);
-}
-
-// ParamDec → Specifier VarDec
-pFieldNode processParamDec(pNode node) {
-    assert(node != NULL);
-    pSType paramType = processSpecifier(child(node));
-    pSymbolItem paramSym = processVarDec(next(child(node)), paramType);
-    if (lookupSymbol(symbolTable, paramSym->field->name) != NULL) {
-        char msg[100] = {0};
-        sprintf(msg, "Redefined parameter \"%s\".", paramSym->field->name);
-        pError(REDEF_VAR, node->line, msg);
-        freeSymbolItem(paramSym);
+        sprintf(msg, "Redefined variable \"%s\".", p->field->name);
+        pError(REDEF_VAR, node->lineNo, msg);
+        deleteItem(p);
         return NULL;
     } else {
-        addSymbolItem(symbolTable, paramSym);
-        return paramSym->field;
+        addTableItem(table, p);
+        return p->field;
     }
 }
 
-// CompSt → LC DefList StmtList RC
-void processCompSt(pNode node, pSType retType) {
+void CompSt(pNode node, pType returnType) {
     assert(node != NULL);
-    addScopeDepth(symbolTable->scope);
-    pNode cur = next(child(node)); // 跳过左大括号
-    if (strcmp(cur->name, "DefList") == 0) {
-        processDefList(cur, NULL);
-        cur = next(cur);
+    // CompSt -> LC DefList StmtList RC
+    // printTreeInfo(node, 0);
+    addStackDepth(table->stack);
+    pNode temp = node->child->next;
+    if (!strcmp(temp->name, "DefList")) {
+        DefList(temp, NULL);
+        temp = temp->next;
     }
-    if (strcmp(cur->name, "StmtList") == 0) {
-        processStmtList(cur, retType);
+    if (!strcmp(temp->name, "StmtList")) {
+        StmtList(temp, returnType);
     }
-    removeScopeSymbols(symbolTable);
+
+    clearCurDepthStackList(table);
 }
 
-void processStmtList(pNode node, pSType retType) {
+void StmtList(pNode node, pType returnType) {
+    // assert(node != NULL);
+    // StmtList -> Stmt StmtList
+    //           | e
+    // printTreeInfo(node, 0);
     while (node) {
-        processStmt(child(node), retType);
-        node = next(child(node));
+        Stmt(node->child, returnType);
+        node = node->child->next;
     }
 }
 
-void processStmt(pNode node, pSType retType) {
+void Stmt(pNode node, pType returnType) {
     assert(node != NULL);
-    pSType expType = NULL;
-    if (strcmp(child(node)->name, "Exp") == 0) {
-        expType = processExp(child(node));
-    } else if (strcmp(child(node)->name, "CompSt") == 0) {
-        processCompSt(child(node), retType);
-    } else if (strcmp(child(node)->name, "RETURN") == 0) {
-        expType = processExp(next(child(node)));
-        if (!checkSTypeEqual(retType, expType))
-            pError(TYPE_MISMATCH_RETURN, node->line, "Return type mismatch.");
-    } else if (strcmp(child(node)->name, "IF") == 0) {
-        pNode stmtNode = next(next(next(next(child(node)))));
-        expType = processExp(next(next(child(node))));
-        processStmt(stmtNode, retType);
-        if (next(stmtNode))
-            processStmt(next(next(stmtNode)), retType);
-    } else if (strcmp(child(node)->name, "WHILE") == 0) {
-        expType = processExp(next(next(child(node))));
-        processStmt(next(next(next(next(child(node))))), retType);
+    // Stmt -> Exp SEMI
+    //       | CompSt
+    //       | RETURN Exp SEMI
+    //       | IF LP Exp RP Stmt
+    //       | IF LP Exp RP Stmt ELSE Stmt
+    //       | WHILE LP Exp RP Stmt
+    // printTreeInfo(node, 0);
+
+    pType expType = NULL;
+    // Stmt -> Exp SEMI
+    if (!strcmp(node->child->name, "Exp")) expType = Exp(node->child);
+
+    // Stmt -> CompSt
+    else if (!strcmp(node->child->name, "CompSt"))
+        CompSt(node->child, returnType);
+
+    // Stmt -> RETURN Exp SEMI
+    else if (!strcmp(node->child->name, "RETURN")) {
+        expType = Exp(node->child->next);
+
+        // check return type
+        if (!checkType(returnType, expType))
+            pError(TYPE_MISMATCH_RETURN, node->lineNo,
+                   "Type mismatched for return.");
     }
-    if (expType) freeSType(expType);
+
+    // Stmt -> IF LP Exp RP Stmt
+    else if (!strcmp(node->child->name, "IF")) {
+        pNode stmt = node->child->next->next->next->next;
+        expType = Exp(node->child->next->next);
+        Stmt(stmt, returnType);
+        // Stmt -> IF LP Exp RP Stmt ELSE Stmt
+        if (stmt->next != NULL) Stmt(stmt->next->next, returnType);
+    }
+
+    // Stmt -> WHILE LP Exp RP Stmt
+    else if (!strcmp(node->child->name, "WHILE")) {
+        expType = Exp(node->child->next->next);
+        Stmt(node->child->next->next->next->next, returnType);
+    }
+
+    if (expType) deleteType(expType);
 }
 
-/*
-DefList → Def DefList
-| NULL
-*/
-void processDefList(pNode node, pSymbolItem structSym) {
+void DefList(pNode node, pItem structInfo) {
+    // assert(node != NULL);
+    // DefList -> Def DefList
+    //          | e
     while (node) {
-        processDef(child(node), structSym);
-        node = next(child(node));
+        Def(node->child, structInfo);
+        node = node->child->next;
     }
 }
 
-// Def → Specifier DecList SEMI
-void processDef(pNode node, pSymbolItem structSym) {
+void Def(pNode node, pItem structInfo) {
     assert(node != NULL);
-    pSType defType = processSpecifier(child(node));
-    processDecList(next(child(node)), defType, structSym);
-    if (defType) freeSType(defType);
+    // Def -> Specifier DecList SEMI
+    // TODO:调用接口
+    pType dectype = Specifier(node->child);
+    //你总会得到一个正确的type
+    DecList(node->child->next, dectype, structInfo);
+    if (dectype) deleteType(dectype);
 }
 
-/*
- DecList → Dec
-| Dec COMMA DecList
-*/
-void processDecList(pNode node, pSType specType, pSymbolItem structSym) {
+void DecList(pNode node, pType specifier, pItem structInfo) {
     assert(node != NULL);
-    pNode cur = node;
-    while (cur) {
-        processDec(child(cur), specType, structSym);
-        if (child(cur)->children[1])
-            cur = child(cur)->children[1];
+    // DecList -> Dec
+    //          | Dec COMMA DecList
+    pNode temp = node;
+    while (temp) {
+        Dec(temp->child, specifier, structInfo);
+        if (temp->child->next)
+            temp = temp->child->next->next;
         else
             break;
     }
 }
 
-/*
-Dec → VarDec
-| VarDec ASSIGNOP Exp
-*/
-void processDec(pNode node, pSType specType, pSymbolItem structSym) {
+void Dec(pNode node, pType specifier, pItem structInfo) {
     assert(node != NULL);
-    if (next(child(node)) == NULL) {
-        if (structSym != NULL) {
-            pSymbolItem decSym = processVarDec(child(node), specType);
-            pFieldNode curField = structSym->field->type->u.structType.fields;
-            pFieldNode lastField = NULL;
-            while (curField) {
-                if (strcmp(decSym->field->name, curField->name) == 0) {
+    // Dec -> VarDec
+    //      | VarDec ASSIGNOP Exp
+
+    // Dec -> VarDec
+    if (node->child->next == NULL) {
+        if (structInfo != NULL) {
+            // 结构体内，将VarDec返回的Item中的filedList
+            // Copy判断是否重定义，无错则到结构体链表尾 记得delete掉Item
+            pItem decitem = VarDec(node->child, specifier);
+            pFieldList payload = decitem->field;
+            pFieldList structField = structInfo->field->type->u.structure.field;
+            pFieldList last = NULL;
+            while (structField != NULL) {
+                // then we have to check
+                if (!strcmp(payload->name, structField->name)) {
+                    //出现重定义，报错
                     char msg[100] = {0};
-                    sprintf(msg, "Redefined field \"%s\".", decSym->field->name);
-                    pError(REDEF_FIELD, node->line, msg);
-                    freeSymbolItem(decSym);
+                    sprintf(msg, "Redefined field \"%s\".",
+                            decitem->field->name);
+                    pError(REDEF_FEILD, node->lineNo, msg);
+                    deleteItem(decitem);
                     return;
+                } else {
+                    last = structField;
+                    structField = structField->tail;
                 }
-                lastField = curField;
-                curField = curField->next;
             }
-            if (lastField == NULL)
-                structSym->field->type->u.structType.fields = cloneFieldNode(decSym->field);
-            else
-                lastField->next = cloneFieldNode(decSym->field);
-            freeSymbolItem(decSym);
-        } else {
-            pSymbolItem decSym = processVarDec(child(node), specType);
-            if (lookupSymbol(symbolTable, decSym->field->name) != NULL) {
-                char msg[100] = {0};
-                sprintf(msg, "Redefined variable \"%s\".", decSym->field->name);
-                pError(REDEF_VAR, node->line, msg);
-                freeSymbolItem(decSym);
+            //新建一个fieldlist,删除之前的item
+            if (last == NULL) {
+                // that is good
+                structInfo->field->type->u.structure.field =
+                    copyFieldList(decitem->field);
             } else {
-                addSymbolItem(symbolTable, decSym);
+                last->tail = copyFieldList(decitem->field);
+            }
+            deleteItem(decitem);
+        } else {
+            // 非结构体内，判断返回的item有无冲突，无冲突放入表中，有冲突报错delete
+            pItem decitem = VarDec(node->child, specifier);
+            if (checkTableItemConflict(table, decitem)) {
+                //出现冲突，报错
+                char msg[100] = {0};
+                sprintf(msg, "Redefined variable \"%s\".",
+                        decitem->field->name);
+                pError(REDEF_VAR, node->lineNo, msg);
+                deleteItem(decitem);
+            } else {
+                addTableItem(table, decitem);
             }
         }
-    } else {
-        if (structSym != NULL) {
-            pError(REDEF_FIELD, node->line, "Illegal initialization in struct.");
+    }
+    // Dec -> VarDec ASSIGNOP Exp
+    else {
+        if (structInfo != NULL) {
+            // 结构体内不能赋值，报错
+            pError(REDEF_FEILD, node->lineNo,
+                   "Illegal initialize variable in struct.");
         } else {
-            pSymbolItem decSym = processVarDec(child(node), specType);
-            pSType expType = processExp(next(next(child(node))));
-            if (lookupSymbol(symbolTable, decSym->field->name) != NULL) {
+            // 判断赋值类型是否相符
+            //如果成功，注册该符号
+            pItem decitem = VarDec(node->child, specifier);
+            pType exptype = Exp(node->child->next->next);
+            if (checkTableItemConflict(table, decitem)) {
+                //出现冲突，报错
                 char msg[100] = {0};
-                sprintf(msg, "Redefined variable \"%s\".", decSym->field->name);
-                pError(REDEF_VAR, node->line, msg);
-                freeSymbolItem(decSym);
+                sprintf(msg, "Redefined variable \"%s\".",
+                        decitem->field->name);
+                pError(REDEF_VAR, node->lineNo, msg);
+                deleteItem(decitem);
             }
-            if (!checkSTypeEqual(decSym->field->type, expType)) {
-                pError(TYPE_MISMATCH_ASSIGN, node->line, "Assignment type mismatch.");
-                freeSymbolItem(decSym);
+            if (!checkType(decitem->field->type, exptype)) {
+                //类型不相符
+                //报错
+                pError(TYPE_MISMATCH_ASSIGN, node->lineNo,
+                       "Type mismatchedfor assignment.");
+                deleteItem(decitem);
             }
-            if (decSym->field->type && decSym->field->type->kind == ARRAY) {
-                pError(TYPE_MISMATCH_ASSIGN, node->line, "Illegal initialization for array.");
-                freeSymbolItem(decSym);
+            if (decitem->field->type && decitem->field->type->kind == ARRAY) {
+                //报错，对非basic类型赋值
+                pError(TYPE_MISMATCH_ASSIGN, node->lineNo,
+                       "Illegal initialize variable.");
+                deleteItem(decitem);
             } else {
-                addSymbolItem(symbolTable, decSym);
+                addTableItem(table, decitem);
             }
-            if (expType) freeSType(expType);
+            // exp不出意外应该返回一个无用的type，删除
+            if (exptype) deleteType(exptype);
         }
     }
 }
 
-/*
-Exp → Exp ASSIGNOP Exp
-| Exp AND Exp
-| Exp OR Exp
-| Exp RELOP Exp
-| Exp PLUS Exp
-| Exp MINUS Exp
-| Exp STAR Exp
-| Exp DIV Exp
-| LP Exp RP
-| MINUS Exp
-| NOT Exp
-| ID LP Args RP
-| ID LP RP
-| Exp LB Exp RB
-| Exp DOT ID
-| ID
-| INT
-| FLOAT
-*/
-pSType processExp(pNode node) {
+pType Exp(pNode node) {
     assert(node != NULL);
-    pNode t = child(node);
-    if (strcmp(t->name, "Exp") == 0) {
-        
-        if (strcmp(next(t)->name, "LB") != 0 && strcmp(next(t)->name, "DOT") != 0) {
-            /*
-            Exp → Exp ASSIGNOP Exp
-            | Exp AND Exp
-            | Exp OR Exp
-            | Exp RELOP Exp
-            | Exp PLUS Exp
-            | Exp MINUS Exp
-            | Exp STAR Exp
-            | Exp DIV Exp
-            */
-            pSType leftType = processExp(t);
-            pSType rightType = processExp(next(next(t)));
-            pSType resultType = NULL;
-            if (strcmp(next(t)->name, "ASSIGNOP") == 0) {
-                pNode leftChild = child(t);
-                if (strcmp(leftChild->name, "FLOAT") == 0 || strcmp(leftChild->name, "INT") == 0) {
-                    pError(LEFT_VAR_ASSIGN, t->line, "Left-hand side is not assignable.");
-                } else if ((strcmp(leftChild->name, "ID") == 0 && leftChild->next == NULL) || 
-                           strcmp(next(leftChild)->name, "LB") == 0 ||
-                           strcmp(next(leftChild)->name, "DOT") == 0) {
-                    /*
-                    | Exp LB Exp RB
-                    | Exp DOT ID
-                    | ID
-                    */
-                    if (!checkSTypeEqual(leftType, rightType)) {
-                        pError(TYPE_MISMATCH_ASSIGN, t->line, "Assignment type mismatch.");
-                    } else {
-                        resultType = cloneSType(leftType);
-                    }
+    // Exp -> Exp ASSIGNOP Exp
+    //      | Exp AND Exp
+    //      | Exp OR Exp
+    //      | Exp RELOP Exp
+    //      | Exp PLUS Exp
+    //      | Exp MINUS Exp
+    //      | Exp STAR Exp
+    //      | Exp DIV Exp
+    //      | LP Exp RP
+    //      | MINUS Exp
+    //      | NOT Exp
+    //      | ID LP Args RP
+    //      | ID LP RP
+    //      | Exp LB Exp RB
+    //      | Exp DOT ID
+    //      | ID
+    //      | INT
+    //      | FLOAT
+    pNode t = node->child;
+    // exp will only check if the cal is right
+    //  printTable(table);
+    //二值运算
+    if (!strcmp(t->name, "Exp")) {
+        // 基本数学运算符
+        if (strcmp(t->next->name, "LB") && strcmp(t->next->name, "DOT")) {
+            pType p1 = Exp(t);
+            pType p2 = Exp(t->next->next);
+            pType returnType = NULL;
+
+            // Exp -> Exp ASSIGNOP Exp
+            if (!strcmp(t->next->name, "ASSIGNOP")) {
+                //检查左值
+                pNode tchild = t->child;
+
+                if (!strcmp(tchild->name, "FLOAT") ||
+                    !strcmp(tchild->name, "INT")) {
+                    //报错，左值
+                    pError(LEFT_VAR_ASSIGN, t->lineNo,
+                           "The left-hand side of an assignment must be "
+                           "avariable.");
+
+                } else if (!strcmp(tchild->name, "ID") ||
+                           !strcmp(tchild->next->name, "LB") ||
+                           !strcmp(tchild->next->name, "DOT")) {
+                    if (!checkType(p1, p2)) {
+                        //报错，类型不匹配
+                        pError(TYPE_MISMATCH_ASSIGN, t->lineNo,
+                               "Type mismatched for assignment.");
+                    } else
+                        returnType = copyType(p1);
                 } else {
-                    pError(LEFT_VAR_ASSIGN, t->line, "Left-hand side is not a valid variable.");
+                    //报错，左值
+                    pError(LEFT_VAR_ASSIGN, t->lineNo,
+                           "The left-hand side of an assignment must be "
+                           "avariable.");
                 }
-            } else {
-                if ((leftType && leftType->kind == ARRAY) || (rightType && rightType->kind == ARRAY)) {
-                    pError(TYPE_MISMATCH_OP, t->line, "Illegal operand for operator.");
-                } else if (!checkSTypeEqual(leftType, rightType)) {
-                    pError(TYPE_MISMATCH_OP, t->line, "Operand types do not match.");
+
+            }
+            // Exp -> Exp AND Exp
+            //      | Exp OR Exp
+            //      | Exp RELOP Exp
+            //      | Exp PLUS Exp
+            //      | Exp MINUS Exp
+            //      | Exp STAR Exp
+            //      | Exp DIV Exp
+            else {
+                if (p1 && p2 && (p1->kind == ARRAY || p2->kind == ARRAY)) {
+                    //报错，数组，结构体运算
+                    pError(TYPE_MISMATCH_OP, t->lineNo,
+                           "Type mismatched for operands.");
+                } else if (!checkType(p1, p2)) {
+                    //报错，类型不匹配
+                    pError(TYPE_MISMATCH_OP, t->lineNo,
+                           "Type mismatched for operands.");
                 } else {
-                    if (leftType && rightType) {
-                        resultType = cloneSType(leftType);
+                    if (p1 && p2) {
+                        returnType = copyType(p1);
                     }
                 }
             }
-            if (leftType) freeSType(leftType);
-            if (rightType) freeSType(rightType);
-            return resultType;
-        } else {
-            /*
-            | Exp LB Exp RB
-            | Exp DOT ID
-            */
-            if (strcmp(next(t)->name, "LB") == 0) {
-                pSType arrayType = processExp(t);
-                pSType indexType = processExp(next(t)->children[0]);
-                pSType resType = NULL;
-                if (arrayType == NULL) {
-                } else if (arrayType->kind != ARRAY) {
+
+            if (p1) deleteType(p1);
+            if (p2) deleteType(p2);
+            return returnType;
+        }
+        // 数组和结构体访问
+        else {
+            // Exp -> Exp LB Exp RB
+            if (!strcmp(t->next->name, "LB")) {
+                //数组
+                pType p1 = Exp(t);
+                pType p2 = Exp(t->next->next);
+                pType returnType = NULL;
+
+                if (!p1) {
+                    // 第一个exp为null，上层报错，这里不用再管
+                } else if (p1 && p1->kind != ARRAY) {
+                    //报错，非数组使用[]运算符
                     char msg[100] = {0};
-                    pError(NOT_A_ARRAY, t->line, "The variable is not an array.");
-                } else if (indexType == NULL || indexType->kind != BASIC || indexType->u.basicType != INT_TYPE) {
+                    sprintf(msg, "\"%s\" is not an array.", t->child->val);
+                    pError(NOT_A_ARRAY, t->lineNo, msg);
+                } else if (!p2 || p2->kind != BASIC ||
+                           p2->u.basic != INT_TYPE) {
+                    //报错，不用int索引[]
                     char msg[100] = {0};
-                    pError(NON_INT_INDEX, t->line, "The index of array is not an integer.");
+                    sprintf(msg, "\"%s\" is not an integer.",
+                            t->next->next->child->val);
+                    pError(NOT_A_INT, t->lineNo, msg);
                 } else {
-                    resType = cloneSType(arrayType->u.array.elemType);
+                    returnType = copyType(p1->u.array.elem);
                 }
-                if (arrayType) freeSType(arrayType);
-                if (indexType) freeSType(indexType);
-                return resType;
-            } else {
-                pSType structType = processExp(t);
-                pSType resType = NULL;
-                if (structType == NULL || structType->kind != STRUCT || structType->u.structType.tag == NULL) {
-                    pError(NOT_A_STRUCT, t->line, "Illegal use of '.' operator.");
-                    if (structType) freeSType(structType);
+                if (p1) deleteType(p1);
+                if (p2) deleteType(p2);
+                return returnType;
+            }
+            // Exp -> Exp DOT ID
+            else {
+                pType p1 = Exp(t);
+                pType returnType = NULL;
+                if (!p1 || p1->kind != STRUCTURE ||
+                    !p1->u.structure.structName) {
+                    //报错，对非结构体使用.运算符
+                    pError(ILLEGAL_USE_DOT, t->lineNo, "Illegal use of \".\".");
+                    if (p1) deleteType(p1);
                 } else {
-                    pNode fieldNode = next(t);
-                    pFieldNode curField = structType->u.structType.fields;
-                    while (curField) {
-                        if (strcmp(curField->name, fieldNode->info) == 0)
+                    pNode ref_id = t->next->next;
+                    pFieldList structfield = p1->u.structure.field;
+                    while (structfield != NULL) {
+                        if (!strcmp(structfield->name, ref_id->val)) {
                             break;
-                        curField = curField->next;
+                        }
+                        structfield = structfield->tail;
                     }
-                    if (curField == NULL) {
-                        pError(NONEXIST_FIELD, t->line, "Undefined field.");
+                    if (structfield == NULL) {
+                        //报错，没有可以匹配的域名
+                        printf("Error type %d at Line %d: %s.\n", 14, t->lineNo,
+                               "NONEXISTFIELD");
+                        ;
                     } else {
-                        resType = cloneSType(curField->type);
+                        returnType = copyType(structfield->type);
                     }
                 }
-                if (structType) freeSType(structType);
-                return resType;
+                if (p1) deleteType(p1);
+                return returnType;
             }
         }
-    } else if (strcmp(t->name, "MINUS") == 0 || strcmp(t->name, "NOT") == 0) {
-        /*
-        | MINUS Exp
-        | NOT Exp
-        */
-        pSType operandType = processExp(next(t));
-        pSType ret = NULL;
-        if (operandType == NULL || operandType->kind != BASIC) {
-            pError(UNDEF_VAR, t->line, "Illegal operand.");
+    }
+    //单目运算符
+    // Exp -> MINUS Exp
+    //      | NOT Exp
+    else if (!strcmp(t->name, "MINUS") || !strcmp(t->name, "NOT")) {
+        pType p1 = Exp(t->next);
+        pType returnType = NULL;
+        if (!p1 || p1->kind != BASIC) {
+            //报错，数组，结构体运算
+            printf("Error type %d at Line %d: %s.\n", 7, t->lineNo,
+                   "TYPE_MISMATCH_OP");
         } else {
-            ret = cloneSType(operandType);
+            returnType = copyType(p1);
         }
-        if (operandType) freeSType(operandType);
-        return ret;
-    } else if (strcmp(t->name, "LP") == 0) {
-        return processExp(next(t));
-    } else if (strcmp(t->name, "ID") == 0 && next(t)) {
-        pSymbolItem funcSym = lookupSymbol(symbolTable, t->info);
-        if (funcSym == NULL) {
+        if (p1) deleteType(p1);
+        return returnType;
+    } else if (!strcmp(t->name, "LP")) {
+        return Exp(t->next);
+    }
+    // Exp -> ID LP Args RP
+    //		| ID LP RP
+    else if (!strcmp(t->name, "ID") && t->next) {
+        pItem funcInfo = searchTableItem(table, t->val);
+
+        // function not find
+        if (funcInfo == NULL) {
             char msg[100] = {0};
-            sprintf(msg, "Undefined function \"%s\".", t->info);
-            pError(UNDEF_FUNC, node->line, msg);
+            sprintf(msg, "Undefined function \"%s\".", t->val);
+            pError(UNDEF_FUNC, node->lineNo, msg);
             return NULL;
-        } else if (funcSym->field->type->kind != FUNC) {
+        } else if (funcInfo->field->type->kind != FUNCTION) {
             char msg[100] = {0};
-            sprintf(msg, "\"%s\" is not a function.", t->info);
-            pError(NOT_A_FUNC, node->line, msg);
+            sprintf(msg, "\"i\" is not a function.", t->val);
+            pError(NOT_A_FUNC, node->lineNo, msg);
             return NULL;
-        } else if (strcmp(next(next(t))->name, "Args") == 0) {
-            processArgs(next(next(t)), funcSym);
-            return cloneSType(funcSym->field->type->u.funcType.retType);
-        } else {
-            if (funcSym->field->type->u.funcType.argCount != 0) {
+        }
+        // Exp -> ID LP Args RP
+        else if (!strcmp(t->next->next->name, "Args")) {
+            Args(t->next->next, funcInfo);
+            return copyType(funcInfo->field->type->u.function.returnType);
+        }
+        // Exp -> ID LP RP
+        else {
+            if (funcInfo->field->type->u.function.argc != 0) {
                 char msg[100] = {0};
-                sprintf(msg, "Too few arguments for function \"%s\"; expected %d args.",
-                        funcSym->field->name,
-                        funcSym->field->type->u.funcType.argCount);
-                pError(FUNC_ARG_MISMATCH, node->line, msg);
+                sprintf(msg,
+                        "too few arguments to function \"%s\", except %d args.",
+                        funcInfo->field->name,
+                        funcInfo->field->type->u.function.argc);
+                pError(FUNC_AGRC_MISMATCH, node->lineNo, msg);
             }
-            return cloneSType(funcSym->field->type->u.funcType.retType);
+            return copyType(funcInfo->field->type->u.function.returnType);
         }
-    } else if (strcmp(t->name, "ID") == 0) {
-        pSymbolItem varSym = lookupSymbol(symbolTable, t->info);
-        if (varSym == NULL || isStructDefined(varSym)) {
+    }
+    // Exp -> ID
+    else if (!strcmp(t->name, "ID")) {
+        pItem tp = searchTableItem(table, t->val);
+        if (tp == NULL || isStructDef(tp)) {
             char msg[100] = {0};
-            sprintf(msg, "Undefined variable \"%s\".", t->info);
-            pError(UNDEF_VAR, t->line, msg);
+            sprintf(msg, "Undefined variable \"%s\".", t->val);
+            pError(UNDEF_VAR, t->lineNo, msg);
             return NULL;
         } else {
-            return cloneSType(varSym->field->type);
+            // good
+            return copyType(tp->field->type);
         }
     } else {
-        if (strcmp(t->name, "FLOAT") == 0)
-            return createSType(BASIC, FLOAT_TYPE);
-        else
-            return createSType(BASIC, INT_TYPE);
+        // Exp -> FLOAT
+        if (!strcmp(t->name, "FLOAT")) {
+            return newType(BASIC, FLOAT_TYPE);
+        }
+        // Exp -> INT
+        else {
+            return newType(BASIC, INT_TYPE);
+        }
     }
 }
 
-void processArgs(pNode node, pSymbolItem funcSym) {
+void Args(pNode node, pItem funcInfo) {
     assert(node != NULL);
-    pNode cur = node;
-    pFieldNode argDef = funcSym->field->type->u.funcType.argList;
-    while (cur) {
-        if (argDef == NULL) {
+    // Args -> Exp COMMA Args
+    //       | Exp
+    // printTreeInfo(node, 0);
+    pNode temp = node;
+    pFieldList arg = funcInfo->field->type->u.function.argv;
+    // printf("-----function atgs-------\n");
+    // printFieldList(arg);
+    // printf("---------end-------------\n");
+    while (temp) {
+        if (arg == NULL) {
             char msg[100] = {0};
-            sprintf(msg, "Too many arguments for function \"%s\"; expected %d args.",
-                    funcSym->field->name, funcSym->field->type->u.funcType.argCount);
-            pError(FUNC_ARG_MISMATCH, node->line, msg);
+            sprintf(
+                msg, "too many arguments to function \"%s\", except %d args.",
+                funcInfo->field->name, funcInfo->field->type->u.function.argc);
+            pError(FUNC_AGRC_MISMATCH, node->lineNo, msg);
             break;
         }
-        pSType argRealType = processExp(child(cur));
-        if (!checkSTypeEqual(argRealType, argDef->type)) {
+        pType realType = Exp(temp->child);
+        // printf("=======arg type=========\n");
+        // printType(realType);
+        // printf("===========end==========\n");
+        if (!checkType(realType, arg->type)) {
             char msg[100] = {0};
-            sprintf(msg, "Function \"%s\" argument type mismatch.",
-                    funcSym->field->name);
-            pError(FUNC_ARG_MISMATCH, node->line, msg);
-            if (argRealType) freeSType(argRealType);
+            sprintf(msg, "Function \"%s\" is not applicable for arguments.",
+                    funcInfo->field->name);
+            pError(FUNC_AGRC_MISMATCH, node->lineNo, msg);
+            if (realType) deleteType(realType);
             return;
         }
-        if (argRealType) freeSType(argRealType);
-        argDef = argDef->next;
-        if (child(cur)->children[1])
-            cur = child(cur)->children[1];
-        else
+        if (realType) deleteType(realType);
+
+        arg = arg->tail;
+        if (temp->child->next) {
+            temp = temp->child->next->next;
+        } else {
             break;
+        }
     }
-    if (argDef != NULL) {
+    if (arg != NULL) {
         char msg[100] = {0};
-        sprintf(msg, "Too few arguments for function \"%s\"; expected %d args.",
-                funcSym->field->name, funcSym->field->type->u.funcType.argCount);
-        pError(FUNC_ARG_MISMATCH, node->line, msg);
+        sprintf(msg, "too few arguments to function \"%s\", except %d args.",
+                funcInfo->field->name, funcInfo->field->type->u.function.argc);
+        pError(FUNC_AGRC_MISMATCH, node->lineNo, msg);
     }
 }

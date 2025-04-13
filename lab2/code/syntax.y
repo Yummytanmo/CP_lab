@@ -1,31 +1,49 @@
 %{
-    #include <stdio.h>
-    #include "lex.yy.c"
-    #include "tree.h"
-
-    void printError(char *msg) {
-        printf("Error type B at Line %d: %s.\n", yylineno, msg);
-    }
-    int yyerror(char *msg){
-    }
-    extern Tree *root;
-    extern int yylineno;
-    extern int error_num;
+    #include<stdio.h>
+    #include"node.h"
+    #include"lex.yy.c"
+    extern boolean synError;
+    pNode root;
+    #define YYERROR_VERBOSE 1
 
 %}
 
+// types
+
 %union{
-    Tree *node;
+    pNode node; 
 }
 
-%token <node> INT FLOAT ID SEMI COMMA ASSIGNOP RELOP PLUS MINUS STAR DIV AND OR DOT NOT
-%token <node> TYPE LP RP LB RB LC RC STRUCT RETURN IF ELSE WHILE
+// tokens
 
-%type <node> Program ExtDefList ExtDef ExtDecList Specifier StructSpecifier OptTag Tag VarDec FunDec VarList ParamDec 
-%type <node> CompSt StmtList Stmt DefList Def DecList Dec Exp Args
+%token <node> INT
+%token <node> FLOAT
+%token <node> ID
+%token <node> TYPE
+%token <node> COMMA
+%token <node> DOT
+%token <node> SEMI
+%token <node> RELOP
+%token <node> ASSIGNOP
+%token <node> PLUS MINUS STAR DIV
+%token <node> AND OR NOT 
+%token <node> LP RP LB RB LC RC
+%token <node> IF
+%token <node> ELSE
+%token <node> WHILE
+%token <node> STRUCT
+%token <node> RETURN
 
-%nonassoc LOWER_THAN_ELSE
-%nonassoc ELSE
+// non-terminals
+
+%type <node> Program ExtDefList ExtDef ExtDecList   //  High-level Definitions
+%type <node> Specifier StructSpecifier OptTag Tag   //  Specifiers
+%type <node> VarDec FunDec VarList ParamDec         //  Declarators
+%type <node> CompSt StmtList Stmt                   //  Statements
+%type <node> DefList Def Dec DecList                //  Local Definitions
+%type <node> Exp Args                               //  Expressions
+
+// precedence and associativity
 
 %right ASSIGNOP
 %left OR
@@ -34,132 +52,107 @@
 %left PLUS MINUS
 %left STAR DIV
 %right NOT
-%left LP RP LB RB DOT
-
-
+%left DOT
+%left LB RB
+%left LP RP
+%nonassoc LOWER_THAN_ELSE
+%nonassoc ELSE
+    
 %%
-
-// High level definations
-Program     :   ExtDefList { YY_USER_ACTION; $$ = createNode("Program", @$.first_line, ""); insertNode($$, $1); root = $$; }
-    ;
-ExtDefList  :   ExtDef ExtDefList { YY_USER_ACTION; $$ = createNode("ExtDefList", @$.first_line, ""); insertNodes(2, $$, $1, $2); }
-    |	/* empty */ { YY_USER_ACTION; $$ = NULL; }
-    ;
-ExtDef      :   Specifier ExtDecList SEMI { YY_USER_ACTION; $$ = createNode("ExtDef", @$.first_line, ""); insertNodes(3, $$, $1, $2, $3); }
-    |	Specifier SEMI { YY_USER_ACTION; $$ = createNode("ExtDef", @$.first_line, ""); insertNodes(2, $$, $1, $2); }
-    |	Specifier FunDec CompSt { YY_USER_ACTION; $$ = createNode("ExtDef", @$.first_line, ""); insertNodes(3, $$, $1, $2, $3); }
-    |   error SEMI { YY_USER_ACTION; error_num++; printError("invalid defination"); }
-    |   Specifier error { YY_USER_ACTION; error_num++; printError("invalid defination"); }
-    |   Specifier error SEMI { YY_USER_ACTION; error_num++; printError("invalid defination"); }
-    ;
-ExtDecList  :   VarDec { YY_USER_ACTION; $$ = createNode("ExtDecList", @$.first_line, ""); insertNode($$, $1); }
-    |	VarDec COMMA ExtDecList { YY_USER_ACTION; $$ = createNode("ExtDecList", @$.first_line, ""); insertNodes(3, $$, $1, $2, $3); }
-    |   VarDec error ExtDecList { YY_USER_ACTION; error_num++; printError("invalid defination"); }
-    ;
+// High-level Definitions
+Program:            ExtDefList                              { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Program", 1, $1); root = $$; }
+    ; 
+ExtDefList:         ExtDef ExtDefList                       { $$ = newNode(@$.first_line, NOT_A_TOKEN, "ExtDefList", 2, $1, $2); }
+    |                                                       { $$ = NULL; } 
+    ; 
+ExtDef:             Specifier ExtDecList SEMI               { $$ = newNode(@$.first_line, NOT_A_TOKEN, "ExtDef", 3, $1, $2, $3); }
+    |               Specifier SEMI                          { $$ = newNode(@$.first_line, NOT_A_TOKEN, "ExtDef", 2, $1, $2); }
+    |               Specifier FunDec CompSt                 { $$ = newNode(@$.first_line, NOT_A_TOKEN, "ExtDef", 3, $1, $2, $3); }
+    |               error SEMI                              { synError = TRUE; }
+    ; 
+ExtDecList:         VarDec                                  { $$ = newNode(@$.first_line, NOT_A_TOKEN, "ExtDecList", 1, $1); }
+    |               VarDec COMMA ExtDecList                 { $$ = newNode(@$.first_line, NOT_A_TOKEN, "ExtDecList", 3, $1, $2, $3); }
+    ; 
 
 // Specifiers
-Specifier       :   TYPE { YY_USER_ACTION; $$ = createNode("Specifier", @$.first_line, ""); insertNode($$, $1); }
-    |	StructSpecifier { YY_USER_ACTION; $$ = createNode("Specifier", @$.first_line, ""); insertNode($$, $1); }
-    ;
-StructSpecifier :   STRUCT OptTag LC DefList RC { YY_USER_ACTION; $$ = createNode("StructSpecifier", @$.first_line, ""); insertNodes(5, $$, $1, $2, $3, $4, $5); }
-    |	STRUCT Tag { YY_USER_ACTION; $$ = createNode("StructSpecifier", @$.first_line, ""); insertNodes(2, $$, $1, $2); }
-    ;
-OptTag  :   ID { YY_USER_ACTION; $$ = createNode("OptTag", @$.first_line, ""); insertNode($$, $1); }
-    |	/* empty */ { YY_USER_ACTION; $$ = NULL; }
-    ;
-Tag     :   ID { YY_USER_ACTION; $$ = createNode("Tag", @$.first_line, ""); insertNode($$, $1); }
-    ;
+Specifier:          TYPE                                    { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Specifier", 1, $1); }
+    |               StructSpecifier                         { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Specifier", 1, $1); }
+    ; 
+StructSpecifier:    STRUCT OptTag LC DefList RC             { $$ = newNode(@$.first_line, NOT_A_TOKEN, "StructSpecifier", 5, $1, $2, $3, $4, $5); }
+    |               STRUCT Tag                              { $$ = newNode(@$.first_line, NOT_A_TOKEN, "StructSpecifier", 2, $1, $2); }
+    ; 
+OptTag:             ID                                      { $$ = newNode(@$.first_line, NOT_A_TOKEN, "OptTag", 1, $1); }
+    |                                                       { $$ = NULL; }
+    ; 
+Tag:                ID                                      { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Tag", 1, $1); }
+    ; 
 
 // Declarators
-VarDec      :   ID { YY_USER_ACTION; $$ = createNode("VarDec", @$.first_line, ""); insertNode($$, $1); }
-    |	VarDec LB INT RB { YY_USER_ACTION; $$ = createNode("VarDec", @$.first_line, ""); insertNodes(4, $$, $1, $2, $3, $4); }
-    |   VarDec LB error RB { YY_USER_ACTION; error_num++; printError("invalid array declaration"); }
-    ;
-FunDec      :   ID LP VarList RP { YY_USER_ACTION; $$ = createNode("FunDec", @$.first_line, ""); insertNodes(4, $$, $1, $2, $3, $4); }
-    |	ID LP RP { YY_USER_ACTION; $$ = createNode("FunDec", @$.first_line, ""); insertNodes(3, $$, $1, $2, $3); }
-    |   LP error RP { YY_USER_ACTION; error_num++; printError("invalid function declaration"); }
-    ;
-VarList     :   ParamDec COMMA VarList { YY_USER_ACTION; $$ = createNode("VarList", @$.first_line, ""); insertNodes(3, $$, $1, $2, $3); }
-    |	ParamDec { YY_USER_ACTION; $$ = createNode("VarList", @$.first_line, ""); insertNode($$, $1); }
-    |   ParamDec error { YY_USER_ACTION; error_num++; printError("invalid function defination"); }
-    ;
-ParamDec    :   Specifier VarDec { YY_USER_ACTION; $$ = createNode("ParamDec", @$.first_line, ""); insertNodes(2, $$, $1, $2);}
-    ;
-
+VarDec:             ID                                      { $$ = newNode(@$.first_line, NOT_A_TOKEN, "VarDec", 1, $1); }
+    |               VarDec LB INT RB                        { $$ = newNode(@$.first_line, NOT_A_TOKEN, "VarDec", 4, $1, $2, $3, $4); }
+    |               error RB                                { synError = TRUE; }
+    ; 
+FunDec:             ID LP VarList RP                        { $$ = newNode(@$.first_line, NOT_A_TOKEN, "FunDec", 4, $1, $2, $3, $4); }
+    |               ID LP RP                                { $$ = newNode(@$.first_line, NOT_A_TOKEN, "FunDec", 3, $1, $2, $3); }
+    |               error RP                                { synError = TRUE; }
+    ; 
+VarList:            ParamDec COMMA VarList                  { $$ = newNode(@$.first_line, NOT_A_TOKEN, "VarList", 3, $1, $2, $3); }
+    |               ParamDec                                { $$ = newNode(@$.first_line, NOT_A_TOKEN, "VarList", 1, $1); }
+    ; 
+ParamDec:           Specifier VarDec                        { $$ = newNode(@$.first_line, NOT_A_TOKEN, "ParamDec", 2, $1, $2); }
+    ; 
 // Statements
-CompSt      :   LC DefList StmtList RC { YY_USER_ACTION; $$ = createNode("CompSt", @$.first_line, ""); insertNodes(4, $$, $1, $2, $3, $4); }
-    |   LC error RC { YY_USER_ACTION; error_num++; printError("invalid statement block"); }
-    ;
-StmtList    :   Stmt StmtList { YY_USER_ACTION; $$ = createNode("StmtList", @$.first_line, ""); insertNodes(2, $$, $1, $2); }
-    |	/* empty */ { YY_USER_ACTION; $$ = NULL; }
-    ;
-Stmt        :   Exp SEMI { YY_USER_ACTION; $$ = createNode("Stmt", @$.first_line, ""); insertNodes(2, $$, $1, $2); }
-    |	CompSt { YY_USER_ACTION; $$ = createNode("Stmt", @$.first_line, ""); insertNode($$, $1); }
-    |	RETURN Exp SEMI { YY_USER_ACTION; $$ = createNode("Stmt", @$.first_line, ""); insertNodes(3, $$, $1, $2, $3); }
-    |	IF LP Exp RP Stmt %prec LOWER_THAN_ELSE { YY_USER_ACTION; $$ = createNode("Stmt", @$.first_line, ""); insertNodes(5, $$, $1, $2, $3, $4, $5); }
-    |	IF LP Exp RP Stmt ELSE Stmt { YY_USER_ACTION; $$ = createNode("Stmt", @$.first_line, ""); insertNodes(7, $$, $1, $2, $3, $4, $5, $6, $7); }
-    |	WHILE LP Exp RP Stmt { YY_USER_ACTION; $$ = createNode("Stmt", @$.first_line, ""); insertNodes(5, $$, $1, $2, $3, $4, $5); }
-    
-    |   error SEMI { YY_USER_ACTION; error_num++; printError("invalid statement"); }
-    |   RETURN Exp error { YY_USER_ACTION; error_num++; printError("invalid return statement"); }
-    |   Exp error { YY_USER_ACTION; error_num++; printError("invalid statement"); }
-    |   IF LP error RP Stmt %prec LOWER_THAN_ELSE { YY_USER_ACTION; error_num++; printError("invalid expression in if-statement"); }
-    |   IF LP error RP Stmt ELSE Stmt { YY_USER_ACTION; error_num++; printError("invalid expression in if-statement"); }
-    |   WHILE LP error RP Stmt { YY_USER_ACTION; error_num++; printError("invalid expression in while-statement"); }
-    ;
-
-// Local definations
-DefList     :   Def DefList { YY_USER_ACTION; $$ = createNode("DefList", @$.first_line, ""); insertNodes(2, $$, $1, $2); }
-    |	/* empty */ { YY_USER_ACTION; $$ = NULL; }
-    ;
-Def         :   Specifier DecList SEMI { YY_USER_ACTION; $$ = createNode("Def", @$.first_line, ""); insertNodes(3, $$, $1, $2, $3); }
-            |   Specifier error SEMI { YY_USER_ACTION; error_num++; printError("invalid defination"); }
-            |   Specifier DecList error { YY_USER_ACTION; error_num++; printError("invalid defination"); }
-            ;
-DecList     :   Dec { YY_USER_ACTION; $$ = createNode("DecList", @$.first_line, ""); insertNode($$, $1); }
-    |	Dec COMMA DecList { YY_USER_ACTION; $$ = createNode("DecList", @$.first_line, ""); insertNodes(3, $$, $1, $2, $3); }
-    ;
-Dec         :   VarDec { YY_USER_ACTION; $$ = createNode("Dec", @$.first_line, ""); insertNode($$, $1); }
-    |	VarDec ASSIGNOP Exp { YY_USER_ACTION; $$ = createNode("Dec", @$.first_line, ""); insertNodes(3, $$, $1, $2, $3); }
-    ;
-
-// Expressions
-Exp :   Exp ASSIGNOP Exp { YY_USER_ACTION; $$ = createNode("Exp", @$.first_line, ""); insertNodes(3, $$, $1, $2, $3); }
-    |	Exp AND Exp { YY_USER_ACTION; $$ = createNode("Exp", @$.first_line, ""); insertNodes(3, $$, $1, $2, $3); }
-    |   Exp OR Exp { YY_USER_ACTION; $$ = createNode("Exp", @$.first_line, ""); insertNodes(3, $$, $1, $2, $3); }
-    |   Exp RELOP Exp { YY_USER_ACTION; $$ = createNode("Exp", @$.first_line, ""); insertNodes(3, $$, $1, $2, $3); }
-    |   Exp PLUS Exp { YY_USER_ACTION; $$ = createNode("Exp", @$.first_line, ""); insertNodes(3, $$, $1, $2, $3); }
-    |   Exp MINUS Exp { YY_USER_ACTION; $$ = createNode("Exp", @$.first_line, ""); insertNodes(3, $$, $1, $2, $3); }
-    |   Exp STAR Exp { YY_USER_ACTION; $$ = createNode("Exp", @$.first_line, ""); insertNodes(3, $$, $1, $2, $3); }
-    |   Exp DIV Exp { YY_USER_ACTION; $$ = createNode("Exp", @$.first_line, ""); insertNodes(3, $$, $1, $2, $3); }
-    |   LP Exp RP { YY_USER_ACTION; $$ = createNode("Exp", @$.first_line, ""); insertNodes(3, $$, $1, $2, $3); }
-    |   MINUS Exp { YY_USER_ACTION; $$ = createNode("Exp", @$.first_line, ""); insertNodes(2, $$, $1, $2); }
-    |   NOT Exp { YY_USER_ACTION; $$ = createNode("Exp", @$.first_line, ""); insertNodes(2, $$, $1, $2); }
-    |   ID LP Args RP { YY_USER_ACTION; $$ = createNode("Exp", @$.first_line, ""); insertNodes(4, $$, $1, $2, $3, $4); }
-    |   ID LP RP { YY_USER_ACTION; $$ = createNode("Exp", @$.first_line, ""); insertNodes(3, $$, $1, $2, $3); }
-    |   Exp LB Exp RB { YY_USER_ACTION; $$ = createNode("Exp", @$.first_line, ""); insertNodes(4, $$, $1, $2, $3, $4); }
-    |   Exp DOT ID { YY_USER_ACTION; $$ = createNode("Exp", @$.first_line, ""); insertNodes(3, $$, $1, $2, $3); }
-    |   ID { YY_USER_ACTION; $$ = createNode("Exp", @$.first_line, ""); insertNode($$, $1); }
-    |   INT { YY_USER_ACTION; $$ = createNode("Exp", @$.first_line, ""); insertNode($$, $1); }
-    |   FLOAT { YY_USER_ACTION; $$ = createNode("Exp", @$.first_line, ""); insertNode($$, $1); }
-    
-    |   ASSIGNOP error { YY_USER_ACTION; error_num++; printError("invalid expression"); }
-    |   AND error { YY_USER_ACTION; error_num++; printError("invalid expression"); }           
-    |   OR error { YY_USER_ACTION; error_num++; printError("invalid expression"); }
-    |   RELOP error { YY_USER_ACTION; error_num++; printError("invalid expression"); }
-    |   PLUS error { YY_USER_ACTION; error_num++; printError("invalid expression"); }
-    |   MINUS error { YY_USER_ACTION; error_num++; printError("invalid expression"); }
-    |   STAR error { YY_USER_ACTION; error_num++; printError("invalid expression"); }
-    |   DIV error { YY_USER_ACTION; error_num++; printError("invalid expression"); }
-    |   NOT error { YY_USER_ACTION; error_num++; printError("invalid expression"); }
-    |   ID LP error RP { YY_USER_ACTION; error_num++; printError("invalid expression"); }
-    |   LP error RP { YY_USER_ACTION; error_num++; printError("invalid expression"); }
-    |   Exp LB error RB { YY_USER_ACTION; error_num++; printError("invalid array element"); }
-    ;
-Args:   Exp COMMA Args { YY_USER_ACTION; $$ = createNode("Args", @$.first_line, ""); insertNodes(3, $$, $1, $2, $3); }
-    |   Exp { YY_USER_ACTION; $$ = createNode("Args", @$.first_line, ""); insertNode($$, $1); }
-    |   Exp error { YY_USER_ACTION; error_num++; printError("invalid function call"); }
-    ;
-
-
+CompSt:             LC DefList StmtList RC                  { $$ = newNode(@$.first_line, NOT_A_TOKEN, "CompSt", 4, $1, $2, $3, $4); }
+    |               error RC                                { synError = TRUE; }
+    ; 
+StmtList:           Stmt StmtList                           { $$ = newNode(@$.first_line, NOT_A_TOKEN, "StmtList", 2, $1, $2); }
+    |                                                       { $$ = NULL; }
+    ; 
+Stmt:               Exp SEMI                                { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Stmt", 2, $1, $2); }
+    |               CompSt                                  { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Stmt", 1, $1); }
+    |               RETURN Exp SEMI                         { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Stmt", 3, $1, $2, $3); }    
+    |               IF LP Exp RP Stmt %prec LOWER_THAN_ELSE { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Stmt", 5, $1, $2, $3, $4, $5); }
+    |               IF LP Exp RP Stmt ELSE Stmt             { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Stmt", 7, $1, $2, $3, $4, $5, $6, $7); }
+    |               WHILE LP Exp RP Stmt                    { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Stmt", 5, $1, $2, $3, $4, $5); }
+    |               error SEMI                              { synError = TRUE; }
+    ; 
+// Local Definitions
+DefList:            Def DefList                             { $$ = newNode(@$.first_line, NOT_A_TOKEN, "DefList", 2, $1, $2); }
+    |                                                       { $$ = NULL; }
+    ;     
+Def:                Specifier DecList SEMI                  { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Def", 3, $1, $2, $3); }
+    ; 
+DecList:            Dec                                     { $$ = newNode(@$.first_line, NOT_A_TOKEN, "DecList", 1, $1); }
+    |               Dec COMMA DecList                       { $$ = newNode(@$.first_line, NOT_A_TOKEN, "DecList", 3, $1, $2, $3); }
+    ; 
+Dec:                VarDec                                  { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Dec", 1, $1); }
+    |               VarDec ASSIGNOP Exp                     { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Dec", 3, $1, $2, $3); }
+    ; 
+//7.1.7 Expressions
+Exp:                Exp ASSIGNOP Exp                        { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Exp", 3, $1, $2, $3); }
+    |               Exp AND Exp                             { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Exp", 3, $1, $2, $3); }
+    |               Exp OR Exp                              { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Exp", 3, $1, $2, $3); }
+    |               Exp RELOP Exp                           { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Exp", 3, $1, $2, $3); }
+    |               Exp PLUS Exp                            { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Exp", 3, $1, $2, $3); }
+    |               Exp MINUS Exp                           { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Exp", 3, $1, $2, $3); }
+    |               Exp STAR Exp                            { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Exp", 3, $1, $2, $3); }
+    |               Exp DIV Exp                             { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Exp", 3, $1, $2, $3); }
+    |               LP Exp RP                               { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Exp", 3, $1, $2, $3); }
+    |               MINUS Exp                               { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Exp", 2, $1, $2); }
+    |               NOT Exp                                 { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Exp", 2, $1, $2); }
+    |               ID LP Args RP                           { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Exp", 4, $1, $2, $3, $4); }
+    |               ID LP RP                                { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Exp", 3, $1, $2, $3); }
+    |               Exp LB Exp RB                           { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Exp", 4, $1, $2, $3, $4); }
+    |               Exp DOT ID                              { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Exp", 3, $1, $2, $3); }
+    |               ID                                      { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Exp", 1, $1); }
+    |               INT                                     { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Exp", 1, $1); }
+    |               FLOAT                                   { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Exp", 1, $1); }
+    ; 
+Args :              Exp COMMA Args                          { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Args", 3, $1, $2, $3); }
+    |               Exp                                     { $$ = newNode(@$.first_line, NOT_A_TOKEN, "Args", 1, $1); }
+    ; 
 %%
+
+int yyerror(char* msg){
+    fprintf(stderr, "Error type B at line %d: %s.\n", yylineno, msg);
+}
