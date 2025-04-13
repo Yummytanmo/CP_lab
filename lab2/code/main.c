@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include "tree.h"
 #include "semantic.h"  // 包含语义分析头文件
+#include "syntax.tab.h"
 
 Tree *root = NULL;
 int error_num = 0;          // 语法/词法错误计数器
@@ -10,6 +11,7 @@ extern FILE* yyin;
 extern int yylex();
 extern int yyrestart(FILE *);
 extern int yyparse();
+extern pSymbolTable symbolTable;
 
 int main(int argc, char** argv) {
     if (argc > 1) {
@@ -24,6 +26,7 @@ int main(int argc, char** argv) {
     
     // 只有语法/词法无错误时才进行语义分析
     if (error_num == 0) {
+        printTree(root, 0);
         symbolTable = initSymTable();   // 初始化符号表
         processTree(root);              // 执行语义分析
         freeSymTable(symbolTable);      // 释放符号表资源
