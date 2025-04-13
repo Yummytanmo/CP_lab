@@ -5,7 +5,6 @@
 #define child(n) ((n)->children[0])
 #define next(n) ((n)->next)
 
-pSymbolTable symbolTable = NULL;
 
 void pError(int errorCode, int line, char* msg){    
     printf("Error type %d at Line %d: %s\n", errorCode, line, msg);
@@ -18,7 +17,7 @@ pSType createSType(Kind kind, ...) {
     assert(typeNode != NULL);
     typeNode->kind = kind;
     va_list args;
-    assert(kind == BASIC || kind == ARRAY || kind == STRUCT_TYPE || kind == FUNC);
+    assert(kind == BASIC || kind == ARRAY || kind == STRUCT || kind == FUNC);
     switch (kind) {
         case BASIC:
             va_start(args, kind);
@@ -31,7 +30,7 @@ pSType createSType(Kind kind, ...) {
             typeNode->u.array.length = va_arg(args, int);
             va_end(args);
             break;
-        case STRUCT_TYPE:
+        case STRUCT:
             va_start(args, kind);
             typeNode->u.structType.tag = va_arg(args, char*);
             typeNode->u.structType.fields = va_arg(args, pFieldNode);
@@ -61,7 +60,7 @@ pSType cloneSType(pSType orig) {
             newTypeNode->u.array.elemType = cloneSType(orig->u.array.elemType);
             newTypeNode->u.array.length = orig->u.array.length;
             break;
-        case STRUCT_TYPE:
+        case STRUCT:
             newTypeNode->u.structType.tag = newString(orig->u.structType.tag);
             newTypeNode->u.structType.fields = cloneFieldNode(orig->u.structType.fields);
             break;
@@ -83,7 +82,7 @@ void freeSType(pSType typeNode) {
             freeSType(typeNode->u.array.elemType);
             typeNode->u.array.elemType = NULL;
             break;
-        case STRUCT_TYPE: {
+        case STRUCT: {
             if (typeNode->u.structType.tag)
                 free(typeNode->u.structType.tag);
             typeNode->u.structType.tag = NULL;
@@ -121,7 +120,7 @@ boolean checkSTypeEqual(pSType t1, pSType t2) {
             return t1->u.basicType == t2->u.basicType;
         case ARRAY:
             return checkSTypeEqual(t1->u.array.elemType, t2->u.array.elemType);
-        case STRUCT_TYPE:
+        case STRUCT:
             return strcmp(t1->u.structType.tag, t2->u.structType.tag) == 0;
         default:
             return FALSE;
@@ -142,7 +141,7 @@ void displaySType(pSType typeNode) {
             printf("Array length: %d\n", typeNode->u.array.length);
             displaySType(typeNode->u.array.elemType);
             break;
-        case STRUCT_TYPE:
+        case STRUCT:
             if (typeNode->u.structType.tag)
                 printf("Struct tag: %s\n", typeNode->u.structType.tag);
             else
@@ -161,10 +160,6 @@ void displaySType(pSType typeNode) {
 // *********************** 域链表相关函数 ***********************
 
 pFieldNode createFieldNode(char* fieldName, pSType fieldType) {
-    if (fieldName == NULL) {
-        fprintf(stderr, "Error: Field name is NULL in createFieldNode.\n");
-        return NULL;
-    }
     pFieldNode newNode = (pFieldNode)malloc(sizeof(FieldNode));
     assert(newNode != NULL);
     newNode->name = newString(fieldName);
@@ -328,32 +323,6 @@ void freeSymTable(pSymbolTable symTab) {
     free(symTab);
 }
 
-pSymStack initScopeStack(void) {
-    pSymStack stack = (pSymStack)malloc(sizeof(SymStack));
-    if (stack == NULL) {
-        fprintf(stderr, "Error: Out of memory while initializing scope stack.\n");
-        exit(1);
-    }
-    stack->currentDepth = -1;
-    stack->stackArray = (pSymbolItem*)malloc(sizeof(pSymbolItem) * HASH_TABLE_SIZE);
-    if (stack->stackArray == NULL) {
-        fprintf(stderr, "Error: Out of memory while initializing scope stack array.\n");
-        free(stack);
-        exit(1);
-    }
-    for (int i = 0; i < HASH_TABLE_SIZE; i++) {
-        stack->stackArray[i] = NULL;
-    }
-    return stack;
-}
-
-void freeScopeStack(pSymStack stack) {
-    if (stack == NULL) return;
-    free(stack->stackArray);
-    stack->stackArray = NULL;
-    free(stack);
-}
-
 // *********************** 语义分析各部分函数 ***********************
 
 void processTree(pNode root) {
@@ -429,7 +398,7 @@ pSType processStructSpecifier(pNode node) {
     pNode tagNode = child(next(node));
     if (strcmp(tagNode->name, "Tag") ) {
         pSymbolItem structSym = createSymbolItem(symbolTable->scope->currentDepth, 
-                                  createFieldNode("", createSType(STRUCT_TYPE, NULL, NULL)));
+                                  createFieldNode("", createSType(STRUCT, NULL, NULL)));
         if (strcmp(tagNode->name, "OptTag") == 0) {
             updateFieldName(structSym->field, child(tagNode)->info);
             tagNode = next(tagNode);
@@ -448,7 +417,7 @@ pSType processStructSpecifier(pNode node) {
             pError(REDEF_STRUCT, node->line, msg);
             freeSymbolItem(structSym);
         } else {
-            retType = createSType(STRUCT_TYPE, newString(structSym->field->name),
+            retType = createSType(STRUCT, newString(structSym->field->name),
                           cloneFieldNode(structSym->field->type->u.structType.fields));
             if (strcmp(next(node)->name, "OptTag") == 0)
                 addSymbolItem(symbolTable, structSym);
@@ -462,7 +431,7 @@ pSType processStructSpecifier(pNode node) {
             sprintf(msg, "Undefined structure \"%s\".", child(tagNode)->info);
             pError(UNDEF_STRUCT_TYPE, node->line, msg);
         } else {
-            retType = createSType(STRUCT_TYPE, newString(existStruct->field->name),
+            retType = createSType(STRUCT, newString(existStruct->field->name),
                         cloneFieldNode(existStruct->field->type->u.structType.fields));
         }
     }
@@ -803,7 +772,7 @@ pSType processExp(pNode node) {
             } else {
                 pSType structType = processExp(t);
                 pSType resType = NULL;
-                if (structType == NULL || structType->kind != STRUCT_TYPE || structType->u.structType.tag == NULL) {
+                if (structType == NULL || structType->kind != STRUCT || structType->u.structType.tag == NULL) {
                     pError(NOT_A_STRUCT, t->line, "Illegal use of '.' operator.");
                     if (structType) freeSType(structType);
                 } else {
@@ -917,51 +886,4 @@ void processArgs(pNode node, pSymbolItem funcSym) {
                 funcSym->field->name, funcSym->field->type->u.funcType.argCount);
         pError(FUNC_ARG_MISMATCH, node->line, msg);
     }
-}
-
-char* newString(const char* s) {
-    if (s == NULL) {
-        fprintf(stderr, "Error: Attempted to create a new string from a NULL pointer.\n");
-        return NULL;
-    }
-    char* newStr = (char*)malloc(strlen(s) + 1);
-    if (newStr != NULL) {
-        strcpy(newStr, s);
-    }
-    return newStr;
-}
-
-unsigned getHashCode(char* str) {
-    unsigned hash = 0;
-    while (*str) {
-        hash = (hash << 5) + *str++;
-    }
-    return hash % HASH_TABLE_SIZE;
-}
-
-pSymbolItem getScopeHead(pSymStack stack) {
-    if (stack == NULL || stack->currentDepth < 0) return NULL;
-    return stack->stackArray[stack->currentDepth];
-}
-
-void setScopeHead(pSymStack stack, pSymbolItem head) {
-    if (stack != NULL && stack->currentDepth >= 0) {
-        stack->stackArray[stack->currentDepth] = head;
-    }
-}
-
-void addScopeDepth(pSymStack stack) {
-    if (stack != NULL) {
-        stack->currentDepth++;
-    }
-}
-
-void decreaseScopeDepth(pSymStack stack) {
-    if (stack != NULL && stack->currentDepth >= 0) {
-        stack->currentDepth--;
-    }
-}
-
-boolean isStructDefined(pSymbolItem item) {
-    return item != NULL && item->field != NULL && item->field->type != NULL && item->field->type->kind == STRUCT_TYPE;
 }

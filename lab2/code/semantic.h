@@ -31,7 +31,7 @@ typedef enum {
 typedef enum {
     BASIC,   // 基本类型
     ARRAY,   // 数组类型
-    STRUCT_TYPE,  // 结构体类型
+    STRUCT,  // 结构体类型
     FUNC     // 函数类型
 } Kind;
 
@@ -95,6 +95,7 @@ typedef struct SymbolTable_ {
     int anonStructCount;   // 匿名结构体计数器
 } SymbolTable, *pSymbolTable;
 
+extern pSymbolTable symbolTable; // 声明外部变量
 /* --- 函数原型 --- */
 
 /* 辅助函数 */
@@ -176,8 +177,5 @@ void processArgs(pNode node, pSymbolItem funcSym);
 
 /* 判断结构体是否已经定义 */
 boolean isStructDefined(pSymbolItem item);
-
-/* 全局符号表 */
-extern pSymbolTable symbolTable;
 
 #endif  /* SEMANTIC_H */
