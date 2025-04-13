@@ -5,6 +5,7 @@
 #define child(n) ((n)->children[0])
 #define next(n) ((n)->next)
 
+pSymbolTable symbolTable = NULL;
 
 void pError(int errorCode, int line, char* msg){    
     printf("Error type %d at Line %d: %s\n", errorCode, line, msg);
