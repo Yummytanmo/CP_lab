@@ -848,19 +848,19 @@ void Dec(pNode node, pType specifier, pItem structInfo) {
     // Dec -> VarDec
     if (node->child->next == NULL) {
         if (structInfo != NULL) {
-            // 结构体内，将VarDec返回的Item中的filedList
-            // Copy判断是否重定义，无错则到结构体链表尾 记得delete掉Item
+            // Handle struct field definitions
             pItem decitem = VarDec(node->child, specifier);
+            if (decitem == NULL || decitem->field == NULL) {
+                pError(REDEF_FEILD, node->lineNo, "Invalid struct field definition.");
+                return;
+            }
             pFieldList payload = decitem->field;
             pFieldList structField = structInfo->field->type->u.structure.field;
             pFieldList last = NULL;
             while (structField != NULL) {
-                // then we have to check
                 if (!strcmp(payload->name, structField->name)) {
-                    //出现重定义，报错
                     char msg[100] = {0};
-                    sprintf(msg, "Redefined field \"%s\".",
-                            decitem->field->name);
+                    sprintf(msg, "Redefined field \"%s\".", decitem->field->name);
                     pError(REDEF_FEILD, node->lineNo, msg);
                     deleteItem(decitem);
                     return;
@@ -869,65 +869,56 @@ void Dec(pNode node, pType specifier, pItem structInfo) {
                     structField = structField->tail;
                 }
             }
-            //新建一个fieldlist,删除之前的item
             if (last == NULL) {
-                // that is good
-                structInfo->field->type->u.structure.field =
-                    copyFieldList(decitem->field);
+                structInfo->field->type->u.structure.field = copyFieldList(decitem->field);
             } else {
                 last->tail = copyFieldList(decitem->field);
             }
             deleteItem(decitem);
         } else {
-            // 非结构体内，判断返回的item有无冲突，无冲突放入表中，有冲突报错delete
             pItem decitem = VarDec(node->child, specifier);
+            if (decitem == NULL || decitem->field == NULL) {
+                pError(REDEF_VAR, node->lineNo, "Invalid variable definition.");
+                return;
+            }
             if (checkTableItemConflict(table, decitem)) {
-                //出现冲突，报错
                 char msg[100] = {0};
-                sprintf(msg, "Redefined variable \"%s\".",
-                        decitem->field->name);
+                sprintf(msg, "Redefined variable \"%s\".", decitem->field->name);
                 pError(REDEF_VAR, node->lineNo, msg);
                 deleteItem(decitem);
             } else {
                 addTableItem(table, decitem);
             }
         }
-    }
-    // Dec -> VarDec ASSIGNOP Exp
-    else {
+    } else {
         if (structInfo != NULL) {
-            // 结构体内不能赋值，报错
-            pError(REDEF_FEILD, node->lineNo,
-                   "Illegal initialize variable in struct.");
+            pError(REDEF_FEILD, node->lineNo, "Illegal initialize variable in struct.");
         } else {
-            // 判断赋值类型是否相符
-            //如果成功，注册该符号
             pItem decitem = VarDec(node->child, specifier);
+            if (decitem == NULL || decitem->field == NULL) {
+                pError(REDEF_VAR, node->lineNo, "Invalid variable definition.");
+                return;
+            }
             pType exptype = Exp(node->child->next->next);
+            if (exptype == NULL) {
+                pError(TYPE_MISMATCH_ASSIGN, node->lineNo, "Invalid expression in assignment.");
+                deleteItem(decitem);
+                return;
+            }
             if (checkTableItemConflict(table, decitem)) {
-                //出现冲突，报错
                 char msg[100] = {0};
-                sprintf(msg, "Redefined variable \"%s\".",
-                        decitem->field->name);
+                sprintf(msg, "Redefined variable \"%s\".", decitem->field->name);
                 pError(REDEF_VAR, node->lineNo, msg);
                 deleteItem(decitem);
-            }
-            if (!checkType(decitem->field->type, exptype)) {
-                //类型不相符
-                //报错
-                pError(TYPE_MISMATCH_ASSIGN, node->lineNo,
-                       "Type mismatchedfor assignment.");
+            } else if (!checkType(decitem->field->type, exptype)) {
+                pError(TYPE_MISMATCH_ASSIGN, node->lineNo, "Type mismatched for assignment.");
                 deleteItem(decitem);
-            }
-            if (decitem->field->type && decitem->field->type->kind == ARRAY) {
-                //报错，对非basic类型赋值
-                pError(TYPE_MISMATCH_ASSIGN, node->lineNo,
-                       "Illegal initialize variable.");
+            } else if (decitem->field->type && decitem->field->type->kind == ARRAY) {
+                pError(TYPE_MISMATCH_ASSIGN, node->lineNo, "Illegal initialize variable.");
                 deleteItem(decitem);
             } else {
                 addTableItem(table, decitem);
             }
-            // exp不出意外应该返回一个无用的type，删除
             if (exptype) deleteType(exptype);
         }
     }

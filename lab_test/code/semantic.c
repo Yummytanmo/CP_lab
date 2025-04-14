@@ -15,7 +15,10 @@ void pError(int errorCode, int line, char* msg){
 
 pSType createSType(Kind kind, ...) {
     pSType typeNode = (pSType)malloc(sizeof(SType));
-    assert(typeNode != NULL);
+    if (typeNode == NULL) {
+        fprintf(stderr, "Out of memory in createSType. Aborting...\n");
+        exit(1);
+    }
     typeNode->kind = kind;
     va_list args;
     assert(kind == BASIC || kind == ARRAY || kind == STRUCT || kind == FUNC);

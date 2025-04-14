@@ -24,6 +24,16 @@ int main(int argc, char** argv) {
 
     yyrestart(f);
     yyparse();
+    if (lexError) {
+        printf("Lexical error\n");
+        fclose(f);
+        return 1;
+    }
+    if (synError) {
+        printf("Syntax error\n");
+        fclose(f);
+        return 1;
+    }
     if (!lexError && !synError) {
         table = initTable();
         // printTreeInfo(root, 0);
