@@ -28,24 +28,25 @@ typedef enum _nodeType {
 typedef enum _kind { BASIC, ARRAY, STRUCTURE, FUNCTION } Kind;
 typedef enum _basicType { INT_TYPE, FLOAT_TYPE } BasicType;
 typedef enum _errorType {
-    UNDEF_VAR = 1,         // Undefined Variable
-    UNDEF_FUNC,            // Undefined Function
-    REDEF_VAR,             // Redefined Variable
-    REDEF_FUNC,            // Redefined Function
-    TYPE_MISMATCH_ASSIGN,  // Type mismatchedfor assignment.
-    LEFT_VAR_ASSIGN,  // The left-hand side of an assignment must be a variable.
-    TYPE_MISMATCH_OP,      // Type mismatched for operands.
-    TYPE_MISMATCH_RETURN,  // Type mismatched for return.
-    FUNC_AGRC_MISMATCH,    // Function is not applicable for arguments
-    NOT_A_ARRAY,           // Variable is not a Array
-    NOT_A_FUNC,            // Variable is not a Function
-    NOT_A_INT,             // Variable is not a Integer
-    ILLEGAL_USE_DOT,       // Illegal use of "."
-    NONEXISTFIELD,         // Non-existentfield
-    REDEF_FEILD,           // Redefined field
-    DUPLICATED_NAME,       // Duplicated name
-    UNDEF_STRUCT           // Undefined structure
+    UNDEF_VAR = 1,         // 错误类型1：变量在使用时未经定义。
+    UNDEF_FUNC,            // 错误类型2：函数在调用时未经定义。
+    REDEF_VAR,             // 错误类型3：变量出现重复定义或变量与前面定义过的结构体名字重复。
+    REDEF_FUNC,            // 错误类型4：函数出现重复定义（即同样的函数名被多次定义）。
+    TYPE_MISMATCH_ASSIGN,  // 错误类型5：赋值号两边的表达式类型不匹配。
+    LEFT_VAR_ASSIGN,       // 错误类型6：赋值号左边出现一个只有右值的表达式。
+    TYPE_MISMATCH_OP,      // 错误类型7：操作数类型不匹配或操作数类型与操作符不匹配（例如整型变量与数组变量相加减，或数组（或结构体）变量与数组（或结构体）变量相加减）。
+    TYPE_MISMATCH_RETURN,  // 错误类型8：return语句的返回类型与函数定义的返回类型不匹配。
+    FUNC_AGRC_MISMATCH,    // 错误类型9：过程调用时实参与形参的数目或类型不匹配。
+    NOT_A_ARRAY,           // 错误类型10：对非数组型变量使用数组访问操作符。
+    NOT_A_FUNC,            // 错误类型11：对非过程名使用过程调用操作符。
+    NOT_A_INT,             // 错误类型12：数组访问操作符“[…]”中出现非整数（例如a[1.5]）。
+    ILLEGAL_USE_DOT,       // 错误类型13：对非结构体类型变量使用“.”操作符。
+    NONEXISTFIELD,         // 错误类型14：访问结构体中未定义过的域。
+    REDEF_FEILD,           // 错误类型15：结构体中域名重复定义（指同一结构体中）。
+    DUPLICATED_NAME,       // 错误类型16：结构体的名字与前面定义过的结构体或变量的名字重复。
+    UNDEF_STRUCT           // 错误类型17：直接使用未定义过的结构体来定义变量。
 } ErrorType;
+
 
 // #define NAME_LENGTH 32
 // #define VAL_LENGTH 64

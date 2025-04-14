@@ -466,12 +466,10 @@ void ExtDef(pNode node) {
     // printType(specifierType);
     // ExtDef -> Specifier ExtDecList SEMI
     if (!strcmp(secondName, "ExtDecList")) {
-        // TODO: process first situation
         ExtDecList(node->child->next, specifierType);
     }
     // ExtDef -> Specifier FunDec CompSt
     else if (!strcmp(secondName, "FunDec")) {
-        // TODO: process third situation
         FunDec(node->child->next, specifierType);
         CompSt(node->child->next->next, specifierType);
     }
