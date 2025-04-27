@@ -52,30 +52,30 @@ extern int yydebug;
     INT = 258,
     FLOAT = 259,
     ID = 260,
-    SEMI = 261,
+    TYPE = 261,
     COMMA = 262,
-    ASSIGNOP = 263,
-    RELOP = 264,
-    PLUS = 265,
-    MINUS = 266,
-    STAR = 267,
-    DIV = 268,
-    AND = 269,
-    OR = 270,
-    DOT = 271,
-    NOT = 272,
-    TYPE = 273,
+    DOT = 263,
+    SEMI = 264,
+    RELOP = 265,
+    ASSIGNOP = 266,
+    PLUS = 267,
+    MINUS = 268,
+    STAR = 269,
+    DIV = 270,
+    AND = 271,
+    OR = 272,
+    NOT = 273,
     LP = 274,
     RP = 275,
     LB = 276,
     RB = 277,
     LC = 278,
     RC = 279,
-    STRUCT = 280,
-    RETURN = 281,
-    IF = 282,
-    ELSE = 283,
-    WHILE = 284,
+    IF = 280,
+    ELSE = 281,
+    WHILE = 282,
+    STRUCT = 283,
+    RETURN = 284,
     LOWER_THAN_ELSE = 285
   };
 #endif
@@ -84,9 +84,9 @@ extern int yydebug;
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
 union YYSTYPE
 {
-#line 17 "./syntax.y"
+#line 13 "./syntax.y"
 
-    Tree *node;
+    pNode node; 
 
 #line 92 "./syntax.tab.h"
 

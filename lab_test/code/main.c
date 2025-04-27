@@ -22,6 +22,9 @@ int main(int argc, char** argv) {
     yyrestart(yyin);
     yyparse();  // 执行语法分析，生成语法树
     
+    if (error_num > 0){
+        return 1;
+    }
     // 只有语法/词法无错误时才进行语义分析
     if (error_num == 0) {
         symbolTable = initSymTable();   // 初始化符号表

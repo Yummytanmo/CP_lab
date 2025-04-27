@@ -1,7 +1,5 @@
 #include "semantic.h"
 
-// 由于 tree.h 中 Tree 结构体没有 next 字段，下面使用宏定义将
-// child(node) 等价于 node->children[0]，next(node) 等价于 node->children[1]
 #define child(n) ((n)->children[0])
 #define next(n) ((n)->next)
 
