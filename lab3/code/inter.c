@@ -222,9 +222,9 @@ void printInterCode(FILE* fp, pInterCodeList interCodeList) {
                     break;
                 case IR_SUB:
                     printOp(fp, cur->code->u.binOp.result);
-                    fprintf(fp, " := ");
-                    printOp(fp, cur->code->u.binOp.op1); // 允许输出#0
-                    fprintf(fp, " - ");
+                    printf(" := ");
+                    printOp(fp, cur->code->u.binOp.op1);
+                    printf(" - ");
                     printOp(fp, cur->code->u.binOp.op2);
                     break;
                 case IR_MUL:
@@ -331,7 +331,7 @@ void printInterCode(FILE* fp, pInterCodeList interCodeList) {
                 case IR_SUB:
                     printOp(fp, cur->code->u.binOp.result);
                     fprintf(fp, " := ");
-                    printOp(fp, cur->code->u.binOp.op1); // 允许输出#0
+                    printOp(fp, cur->code->u.binOp.op1);
                     fprintf(fp, " - ");
                     printOp(fp, cur->code->u.binOp.op2);
                     break;
@@ -610,14 +610,14 @@ void genInterCode(int kind, ...) {
             result = va_arg(vaList, pOperand);
             op1 = va_arg(vaList, pOperand);
             op2 = va_arg(vaList, pOperand);
-            if (op1->kind == OP_CONSTANT) {
-                pOperand temp = newTemp();
-                genInterCode(IR_ASSIGN, temp, op1);
+            if (op1->kind == OP_ADDRESS) {
+                temp = newTemp();
+                genInterCode(IR_READ_ADDR, temp, op1);
                 op1 = temp;
             }
-            if (op2->kind == OP_CONSTANT) {
-                pOperand temp = newTemp();
-                genInterCode(IR_ASSIGN, temp, op2);
+            if (op2->kind == OP_ADDRESS) {
+                temp = newTemp();
+                genInterCode(IR_READ_ADDR, temp, op2);
                 op2 = temp;
             }
             newCode = newInterCodes(newInterCode(kind, result, op1, op2));
@@ -673,13 +673,19 @@ void translateFunDec(pNode node) {
     if (interError) return;
     // FunDec -> ID LP VarList RP
     //         | ID LP RP
-    genInterCode(
-        IR_FUNCTION, newOperand(OP_FUNCTION, newString(node->child->val)));
+    genInterCode(IR_FUNCTION,
+                 newOperand(OP_FUNCTION, newString(node->child->val)));
+    // pInterCodes func = newInterCodes(newInterCode(
+    //     IR_FUNCTION, newOperand(OP_FUNCTION, newString(node->child->val))));
+    // addInterCode(interCodeList, func);
 
     pItem funcItem = searchTableItem(table, node->child->val);
     pFieldList temp = funcItem->field->type->u.function.argv;
     while (temp) {
         genInterCode(IR_PARAM, newOperand(OP_VARIABLE, newString(temp->name)));
+        // pInterCodes arg = newInterCodes(newInterCode(
+        //     IR_PARAM, newOperand(OP_VARIABLE, newString(temp->name))));
+        // addInterCode(interCodeList, arg);
         temp = temp->tail;
     }
 }
@@ -751,22 +757,19 @@ void translateDec(pNode node) {
 }
 
 void translateVarDec(pNode node, pOperand place) {
-    if (place && !strcmp(node->child->name, "ID")) {
-        // 生成 v1 := t1 而不是 v1 = #0
-        genInterCode(IR_ASSIGN, place, 
-            newOperand(OP_VARIABLE, newString(node->child->val)));
-    }
+    assert(node != NULL);
+    if (interError) return;
     // VarDec -> ID
     //         | VarDec LB INT RB
 
     if (!strcmp(node->child->name, "ID")) {
         pItem temp = searchTableItem(table, node->child->val);
         pType type = temp->field->type;
-        if (!strcmp(node->child->name, "ID")) {
-            pItem temp = searchTableItem(table, node->child->val);
+        if (type->kind == BASIC) {
             if (place) {
-                // 生成赋值指令：place := 变量名
-                genInterCode(IR_ASSIGN, place, newOperand(OP_VARIABLE, newString(temp->field->name)));
+                interCodeList->tempVarNum--;
+                setOperand(place, OP_VARIABLE,
+                           (void*)newString(temp->field->name));
             }
         } else if (type->kind == ARRAY) {
             // 不需要完成高维数组情况
@@ -896,11 +899,7 @@ void translateExp(pNode node, pOperand place) {
     // Exp -> LP Exp RP
     if (!strcmp(node->child->name, "LP"))
         translateExp(node->child->next, place);
-    else if (!strcmp(node->child->name, "INT")) {
-        pOperand temp = newTemp();
-        genInterCode(IR_ASSIGN, temp, newOperand(OP_CONSTANT, atoi(node->child->val)));
-        genInterCode(IR_ASSIGN, place, temp);
-    }
+
     else if (!strcmp(node->child->name, "Exp") ||
              !strcmp(node->child->name, "NOT")) {
         // 条件表达式 和 基本表达式
@@ -1115,9 +1114,7 @@ void translateExp(pNode node, pOperand place) {
         // Exp -> ID LP RP
         else {
             if (!strcmp(node->child->val, "read")) {
-                pOperand temp = newTemp();
-                genInterCode(IR_READ, temp);
-                genInterCode(IR_ASSIGN, place, temp);
+                genInterCode(IR_READ, place);
             } else {
                 if (place) {
                     genInterCode(IR_CALL, place, funcTemp);
@@ -1179,19 +1176,20 @@ void translateCond(pNode node, pOperand labelTrue, pOperand labelFalse) {
         translateExp(node->child, t1);
         translateExp(node->child->next->next, t2);
 
-        // 强制将立即数转换为临时变量
-        if (t1->kind == OP_CONSTANT) {
+        pOperand relop =
+            newOperand(OP_RELOP, newString(node->child->next->val));
+
+        if (t1->kind == OP_ADDRESS) {
             pOperand temp = newTemp();
-            genInterCode(IR_ASSIGN, temp, t1);
+            genInterCode(IR_READ_ADDR, temp, t1);
             t1 = temp;
         }
-        if (t2->kind == OP_CONSTANT) {
+        if (t2->kind == OP_ADDRESS) {
             pOperand temp = newTemp();
-            genInterCode(IR_ASSIGN, temp, t2);
+            genInterCode(IR_READ_ADDR, temp, t2);
             t2 = temp;
         }
 
-        pOperand relop = newOperand(OP_RELOP, newString(node->child->next->val));
         genInterCode(IR_IF_GOTO, t1, relop, t2, labelTrue);
         genInterCode(IR_GOTO, labelFalse);
     }
