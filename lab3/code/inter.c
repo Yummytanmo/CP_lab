@@ -1162,6 +1162,11 @@ void translateExp(pNode node, pOperand place) {
     }
 }
 
+/*
+ * translateCond函数负责对条件表达式生成中间代码。
+ * 根据条件表达式的结果，该函数产生IR_IF_GOTO、IR_GOTO等跳转指令，
+ * 从而实现条件分支的控制流（辨别真假分支并跳转到对应标签）。
+ */
 void translateCond(pNode node, pOperand labelTrue, pOperand labelFalse) {
     assert(node != NULL);
     if (interError) return;
@@ -1174,16 +1179,13 @@ void translateCond(pNode node, pOperand labelTrue, pOperand labelFalse) {
     if (!strcmp(node->child->name, "NOT")) {
         translateCond(node->child->next, labelFalse, labelTrue);
     }
-    // Exp -> Exp RELOP Exp
     else if (!strcmp(node->child->next->name, "RELOP")) {
         pOperand t1 = newTemp();
         pOperand t2 = newTemp();
         translateExp(node->child, t1);
         translateExp(node->child->next->next, t2);
 
-        pOperand relop =
-            newOperand(OP_RELOP, newString(node->child->next->val));
-
+        pOperand relop = newOperand(OP_RELOP, newString(node->child->next->val));
         if (t1->kind == OP_ADDRESS) {
             pOperand temp = newTemp();
             genInterCode(IR_READ_ADDR, temp, t1);
@@ -1194,31 +1196,26 @@ void translateCond(pNode node, pOperand labelTrue, pOperand labelFalse) {
             genInterCode(IR_READ_ADDR, temp, t2);
             t2 = temp;
         }
-
         genInterCode(IR_IF_GOTO, t1, relop, t2, labelTrue);
         genInterCode(IR_GOTO, labelFalse);
     }
-    // Exp -> Exp AND Exp
     else if (!strcmp(node->child->next->name, "AND")) {
         pOperand label1 = newLabel();
         translateCond(node->child, label1, labelFalse);
         genInterCode(IR_LABEL, label1);
         translateCond(node->child->next->next, labelTrue, labelFalse);
     }
-    // Exp -> Exp OR Exp
     else if (!strcmp(node->child->next->name, "OR")) {
         pOperand label1 = newLabel();
         translateCond(node->child, labelTrue, label1);
         genInterCode(IR_LABEL, label1);
         translateCond(node->child->next->next, labelTrue, labelFalse);
     }
-    // other cases
     else {
         pOperand t1 = newTemp();
         translateExp(node, t1);
         pOperand t2 = newOperand(OP_CONSTANT, 0);
         pOperand relop = newOperand(OP_RELOP, newString("!="));
-
         if (t1->kind == OP_ADDRESS) {
             pOperand temp = newTemp();
             genInterCode(IR_READ_ADDR, temp, t1);
