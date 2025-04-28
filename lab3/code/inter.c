@@ -604,6 +604,7 @@ void genInterCode(int kind, ...) {
             break;
         case IR_ADD:
         case IR_SUB:
+            // opt2如果是立即数，要建立临时变量
         case IR_MUL:
         case IR_DIV:
             va_start(vaList, 3);
@@ -620,11 +621,16 @@ void genInterCode(int kind, ...) {
                 genInterCode(IR_READ_ADDR, temp, op2);
                 op2 = temp;
             }
+            // Added check for immediate operand in IR_SUB
+            if (kind == IR_SUB && op2->kind == OP_CONSTANT) {
+                temp = newTemp();
+                genInterCode(IR_ASSIGN, temp, op2);
+                op2 = temp;
+            }
             newCode = newInterCodes(newInterCode(kind, result, op1, op2));
             addInterCode(interCodeList, newCode);
             break;
         case IR_DEC:
-            // TODO:
             va_start(vaList, 2);
             op1 = va_arg(vaList, pOperand);
             size = va_arg(vaList, int);
@@ -632,7 +638,6 @@ void genInterCode(int kind, ...) {
             addInterCode(interCodeList, newCode);
             break;
         case IR_IF_GOTO:
-            // TODO:
             va_start(vaList, 4);
             result = va_arg(vaList, pOperand);
             relop = va_arg(vaList, pOperand);
